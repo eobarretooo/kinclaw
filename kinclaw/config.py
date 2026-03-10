@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import functools
-from typing import Any
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,15 +44,13 @@ class Settings(BaseSettings):
     web_host: str = "0.0.0.0"
     web_port: int = 8000
 
-    # Channels
-    active_channels: list[str] = ["telegram"]
+    # Channels — stored as comma-separated string to avoid pydantic-settings
+    # trying json.loads() on plain values like "telegram,discord"
+    active_channels: str = "telegram"
 
-    @field_validator("active_channels", mode="before")
-    @classmethod
-    def parse_channels(cls, v: Any) -> list[str]:
-        if isinstance(v, str):
-            return [c.strip() for c in v.split(",") if c.strip()]
-        return v
+    @property
+    def active_channels_list(self) -> list[str]:
+        return [c.strip() for c in self.active_channels.split(",") if c.strip()]
 
     @property
     def telegram_allowed_id_list(self) -> list[int]:

@@ -12,8 +12,8 @@ def test_settings_defaults():
 
 def test_settings_channels_list():
     s = Settings(active_channels="telegram,discord")
-    assert "telegram" in s.active_channels
-    assert "discord" in s.active_channels
+    assert "telegram" in s.active_channels_list
+    assert "discord" in s.active_channels_list
 
 
 def test_get_settings_is_cached():
