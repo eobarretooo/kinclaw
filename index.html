@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KinClaw — O Agente Que Nunca Dorme</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=JetBrains+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --black: #06080f;
+    --deep: #0b0f1a;
+    --surface: #111827;
+    --card: #161d2e;
+    --border: rgba(0,255,200,0.08);
+    --cyan: #00ffc8;
+    --cyan-dim: rgba(0,255,200,0.6);
+    --cyan-glow: rgba(0,255,200,0.15);
+    --blue: #3b82f6;
+    --purple: #8b5cf6;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --subtle: #1e293b;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--black);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    overflow-x: hidden;
+    line-height: 1.6;
+  }
+
+  /* ─── SCROLLBAR ─────────────────────────────── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--black); }
+  ::-webkit-scrollbar-thumb { background: var(--cyan); border-radius: 2px; }
+
+  /* ─── NOISE OVERLAY ─────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.4;
+  }
+
+  /* ─── NAV ───────────────────────────────────── */
+  nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    padding: 20px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(6,8,15,0.7);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    color: var(--cyan);
+    letter-spacing: -0.5px;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .nav-logo::before {
+    content: '';
+    display: block;
+    width: 8px;
+    height: 8px;
+    background: var(--cyan);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 var(--cyan-glow); }
+    50% { opacity: 0.7; transform: scale(1.2); box-shadow: 0 0 0 6px transparent; }
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    list-style: none;
+  }
+
+  .nav-links a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    transition: color 0.2s;
+  }
+
+  .nav-links a:hover { color: var(--text); }
+
+  .nav-cta {
+    background: transparent;
+    border: 1px solid var(--cyan);
+    color: var(--cyan) !important;
+    padding: 8px 20px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px !important;
+    cursor: pointer;
+    transition: all 0.2s !important;
+  }
+
+  .nav-cta:hover {
+    background: var(--cyan-glow) !important;
+    color: var(--cyan) !important;
+  }
+
+  /* ─── HERO ──────────────────────────────────── */
+  #hero {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    position: relative;
+    padding: 140px 48px 80px;
+    overflow: hidden;
+  }
+
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 50% at 70% 40%, rgba(0,255,200,0.05) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 40% at 20% 80%, rgba(59,130,246,0.05) 0%, transparent 60%);
+  }
+
+  .hero-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,255,200,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,200,0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 80% 80% at center, black, transparent);
+  }
+
+  .hero-inner {
+    position: relative;
+    max-width: 1100px;
+    margin: 0 auto;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: center;
+  }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,255,200,0.08);
+    border: 1px solid rgba(0,255,200,0.2);
+    border-radius: 2px;
+    padding: 6px 14px;
+    font-size: 11px;
+    color: var(--cyan);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    width: fit-content;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .hero-badge span {
+    width: 6px;
+    height: 6px;
+    background: var(--cyan);
+    border-radius: 50%;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(42px, 5vw, 68px);
+    line-height: 1.0;
+    letter-spacing: -2px;
+    color: #fff;
+    animation: fadeUp 0.6s 0.1s ease both;
+  }
+
+  h1 em {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    color: var(--cyan);
+    font-weight: 400;
+    letter-spacing: -1px;
+  }
+
+  .hero-sub {
+    margin-top: 20px;
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 440px;
+    line-height: 1.7;
+    animation: fadeUp 0.6s 0.2s ease both;
+  }
+
+  .hero-actions {
+    display: flex;
+    gap: 16px;
+    margin-top: 40px;
+    flex-wrap: wrap;
+    animation: fadeUp 0.6s 0.3s ease both;
+  }
+
+  .btn-primary {
+    background: var(--cyan);
+    color: var(--black);
+    border: none;
+    padding: 14px 28px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 3px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+
+  .btn-primary:hover {
+    background: #00e6b4;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 32px rgba(0,255,200,0.3);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--subtle);
+    padding: 14px 28px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    border-radius: 3px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+  }
+
+  .btn-ghost:hover {
+    border-color: var(--muted);
+    background: var(--surface);
+  }
+
+  /* ─── TERMINAL ──────────────────────────────── */
+  .hero-terminal {
+    animation: fadeUp 0.6s 0.4s ease both;
+  }
+
+  .terminal-window {
+    background: var(--deep);
+    border: 1px solid rgba(0,255,200,0.12);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+
+  .terminal-bar {
+    background: var(--surface);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid rgba(0,255,200,0.08);
+  }
+
+  .terminal-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+  }
+
+  .terminal-dot:nth-child(1) { background: #ff5f57; }
+  .terminal-dot:nth-child(2) { background: #ffbd2e; }
+  .terminal-dot:nth-child(3) { background: #28c840; }
+
+  .terminal-title {
+    margin-left: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  .terminal-body {
+    padding: 20px 24px;
+    font-size: 12.5px;
+    line-height: 1.9;
+    min-height: 280px;
+  }
+
+  .t-line { display: flex; gap: 8px; align-items: flex-start; }
+  .t-time { color: var(--muted); min-width: 60px; font-size: 11px; padding-top: 2px; }
+  .t-kc { color: var(--cyan); }
+  .t-user { color: #a78bfa; }
+  .t-sys { color: var(--muted); font-size: 11px; }
+  .t-ok { color: #34d399; }
+  .t-warn { color: #fbbf24; }
+  .t-msg { color: var(--text); }
+
+  .terminal-line {
+    opacity: 0;
+    animation: termAppear 0.3s ease forwards;
+  }
+
+  @keyframes termAppear {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 14px;
+    background: var(--cyan);
+    vertical-align: middle;
+    animation: blink 1s step-end infinite;
+    margin-left: 2px;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ─── STATS ─────────────────────────────────── */
+  #stats {
+    padding: 0 48px 80px;
+    position: relative;
+  }
+
+  .stats-wrapper {
+    max-width: 1100px;
+    margin: 0 auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--card), var(--deep));
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    overflow: hidden;
+  }
+
+  .stat-item {
+    padding: 32px 24px;
+    border-right: 1px solid var(--border);
+    transition: background 0.2s;
+    position: relative;
+  }
+
+  .stat-item:last-child { border-right: none; }
+
+  .stat-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--cyan);
+    transform: scaleX(0);
+    transition: transform 0.3s ease;
+    transform-origin: left;
+  }
+
+  .stat-item:hover::before { transform: scaleX(1); }
+  .stat-item:hover { background: rgba(0,255,200,0.03); }
+
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 28px;
+    color: #fff;
+    letter-spacing: -1px;
+  }
+
+  .stat-value .accent { color: var(--cyan); }
+
+  .stat-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+  }
+
+  .stat-delta {
+    font-size: 10px;
+    color: #34d399;
+    margin-top: 6px;
+  }
+
+  /* ─── SECTION BASE ──────────────────────────── */
+  section { padding: 100px 48px; }
+
+  .section-tag {
+    font-size: 10px;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--cyan);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .section-tag::before {
+    content: '';
+    width: 24px;
+    height: 1px;
+    background: var(--cyan);
+  }
+
+  h2 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(32px, 3.5vw, 48px);
+    letter-spacing: -1.5px;
+    color: #fff;
+    line-height: 1.1;
+  }
+
+  h2 em {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    color: var(--cyan);
+    font-weight: 400;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* ─── HOW IT WORKS ──────────────────────────── */
+  #how {
+    background: linear-gradient(180deg, transparent, var(--deep) 20%, var(--deep) 80%, transparent);
+  }
+
+  .how-header {
+    text-align: center;
+    margin-bottom: 80px;
+  }
+
+  .how-header .section-tag {
+    justify-content: center;
+  }
+
+  .how-header .section-tag::before { display: none; }
+
+  .flow-steps {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0;
+    position: relative;
+  }
+
+  .flow-step {
+    padding: 0 16px;
+    position: relative;
+    text-align: center;
+  }
+
+  .flow-connector {
+    position: absolute;
+    top: 36px;
+    left: 50%;
+    right: -50%;
+    height: 1px;
+    background: linear-gradient(90deg, var(--cyan-dim), transparent);
+    z-index: 0;
+  }
+
+  .flow-step:last-child .flow-connector { display: none; }
+
+  .step-num {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,255,200,0.3);
+    background: var(--card);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+    position: relative;
+    z-index: 1;
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 22px;
+    color: var(--cyan);
+    transition: all 0.3s;
+  }
+
+  .flow-step:hover .step-num {
+    background: var(--cyan-glow);
+    border-color: var(--cyan);
+    box-shadow: 0 0 32px rgba(0,255,200,0.2);
+    transform: scale(1.05);
+  }
+
+  .step-num svg {
+    width: 28px;
+    height: 28px;
+    stroke: var(--cyan);
+    fill: none;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .step-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: #fff;
+    margin-bottom: 8px;
+    letter-spacing: -0.3px;
+  }
+
+  .step-desc {
+    font-size: 11.5px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  /* ─── FEATURES ──────────────────────────────── */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2px;
+    margin-top: 64px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .feature-card {
+    background: var(--card);
+    padding: 48px 40px;
+    transition: background 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .feature-card::after {
+    content: '';
+    position: absolute;
+    top: -80px;
+    right: -80px;
+    width: 200px;
+    height: 200px;
+    background: radial-gradient(circle, var(--cyan-glow), transparent 70%);
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+
+  .feature-card:hover::after { opacity: 1; }
+  .feature-card:hover { background: #1a2236; }
+
+  .feature-icon {
+    width: 44px;
+    height: 44px;
+    border: 1px solid rgba(0,255,200,0.2);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+    background: rgba(0,255,200,0.06);
+  }
+
+  .feature-icon svg {
+    width: 22px;
+    height: 22px;
+    stroke: var(--cyan);
+    fill: none;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .feature-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    color: #fff;
+    margin-bottom: 12px;
+    letter-spacing: -0.5px;
+  }
+
+  .feature-desc {
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+
+  .feature-tag {
+    display: inline-block;
+    margin-top: 20px;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--cyan);
+    background: rgba(0,255,200,0.08);
+    border: 1px solid rgba(0,255,200,0.15);
+    padding: 4px 10px;
+    border-radius: 2px;
+  }
+
+  /* ─── TIMELINE ──────────────────────────────── */
+  #timeline {
+    background: linear-gradient(180deg, transparent, var(--deep) 10%, var(--deep) 90%, transparent);
+  }
+
+  .timeline-layout {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    gap: 80px;
+    align-items: start;
+    margin-top: 64px;
+  }
+
+  .timeline-list {
+    position: relative;
+    padding-left: 28px;
+  }
+
+  .timeline-list::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: linear-gradient(180deg, var(--cyan), transparent);
+  }
+
+  .tl-item {
+    padding: 0 0 40px 32px;
+    position: relative;
+  }
+
+  .tl-dot {
+    position: absolute;
+    left: -5px;
+    top: 5px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--cyan);
+    border: 2px solid var(--black);
+    box-shadow: 0 0 12px rgba(0,255,200,0.5);
+  }
+
+  .tl-item:not(:first-child) .tl-dot {
+    background: var(--surface);
+    border-color: var(--muted);
+    box-shadow: none;
+  }
+
+  .tl-version {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    color: #fff;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .tl-ver-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: rgba(0,255,200,0.1);
+    color: var(--cyan);
+    border: 1px solid rgba(0,255,200,0.2);
+    padding: 2px 8px;
+    border-radius: 2px;
+  }
+
+  .tl-item:not(:first-child) .tl-ver-tag {
+    background: var(--subtle);
+    color: var(--muted);
+    border-color: var(--border);
+  }
+
+  .tl-date {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .tl-changes {
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.7;
+  }
+
+  .tl-metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #34d399;
+    background: rgba(52,211,153,0.08);
+    border: 1px solid rgba(52,211,153,0.15);
+    padding: 2px 8px;
+    border-radius: 2px;
+    margin-top: 8px;
+  }
+
+  /* ─── COMMUNITY BOX ─────────────────────────── */
+  .community-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 32px;
+    position: sticky;
+    top: 120px;
+  }
+
+  .comm-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    color: #fff;
+    margin-bottom: 24px;
+  }
+
+  .comm-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .comm-stat {
+    background: var(--deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .comm-stat-num {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 24px;
+    color: #fff;
+    letter-spacing: -1px;
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 2px;
+  }
+
+  .comm-stat-num .unit { font-size: 14px; font-weight: 400; color: var(--cyan); }
+
+  .comm-stat-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+  }
+
+  .comm-links {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .comm-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    text-decoration: none;
+    color: var(--text);
+    font-size: 12px;
+    transition: all 0.2s;
+  }
+
+  .comm-link:hover {
+    border-color: rgba(0,255,200,0.3);
+    background: var(--cyan-glow);
+    color: var(--cyan);
+  }
+
+  .comm-link span { color: var(--muted); font-size: 11px; }
+
+  /* ─── COMPARISON ────────────────────────────── */
+  #comparison { padding: 100px 48px; }
+
+  .comparison-table {
+    margin-top: 64px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .ct-header {
+    display: grid;
+    grid-template-columns: 2fr repeat(4, 1fr);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .ct-cell {
+    padding: 16px 20px;
+    font-size: 12px;
+    color: var(--muted);
+    border-right: 1px solid var(--border);
+  }
+
+  .ct-cell:last-child { border-right: none; }
+  .ct-cell.highlight {
+    color: var(--cyan);
+    background: rgba(0,255,200,0.05);
+    font-weight: 500;
+  }
+
+  .ct-row {
+    display: grid;
+    grid-template-columns: 2fr repeat(4, 1fr);
+    border-bottom: 1px solid var(--border);
+    transition: background 0.2s;
+  }
+
+  .ct-row:last-child { border-bottom: none; }
+  .ct-row:hover { background: rgba(255,255,255,0.02); }
+
+  .ct-row .ct-cell { color: var(--text); background: var(--card); }
+  .ct-row .ct-cell.highlight { background: rgba(0,255,200,0.04); }
+
+  .check { color: #34d399; }
+  .cross { color: #f87171; }
+
+  /* ─── DEMO ──────────────────────────────────── */
+  #demo {
+    background: linear-gradient(180deg, transparent, var(--deep) 10%, var(--deep) 90%, transparent);
+  }
+
+  .demo-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    align-items: start;
+    margin-top: 64px;
+  }
+
+  .demo-info h3 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    color: #fff;
+    margin-bottom: 16px;
+    letter-spacing: -0.5px;
+  }
+
+  .demo-info p {
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.8;
+    margin-bottom: 32px;
+  }
+
+  .demo-bullets {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .demo-bullets li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .demo-bullets li::before {
+    content: '›';
+    color: var(--cyan);
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  /* Chat UI */
+  .chat-ui {
+    background: var(--deep);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .chat-header {
+    background: var(--surface);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .chat-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--cyan), var(--blue));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 12px;
+    color: var(--black);
+  }
+
+  .chat-name {
+    font-size: 13px;
+    color: #fff;
+    font-weight: 500;
+  }
+
+  .chat-status {
+    font-size: 10px;
+    color: #34d399;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .chat-status::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: #34d399;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  .chat-messages {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 340px;
+  }
+
+  .msg {
+    max-width: 85%;
+    animation: msgIn 0.4s ease both;
+  }
+
+  @keyframes msgIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .msg.bot { align-self: flex-start; }
+  .msg.user { align-self: flex-end; }
+
+  .msg-bubble {
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .msg.bot .msg-bubble {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-bottom-left-radius: 2px;
+  }
+
+  .msg.user .msg-bubble {
+    background: rgba(0,255,200,0.12);
+    border: 1px solid rgba(0,255,200,0.2);
+    color: var(--cyan);
+    border-bottom-right-radius: 2px;
+  }
+
+  .msg-meta {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 4px;
+    padding: 0 4px;
+  }
+
+  .msg.user .msg-meta { text-align: right; }
+
+  .progress-bar {
+    background: var(--subtle);
+    border-radius: 2px;
+    height: 4px;
+    margin-top: 8px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--cyan), var(--blue));
+    border-radius: 2px;
+    animation: progressAnim 2s ease forwards;
+    animation-delay: var(--delay, 0s);
+    width: 0;
+  }
+
+  @keyframes progressAnim {
+    to { width: var(--target, 100%); }
+  }
+
+  /* ─── CTA FINAL ─────────────────────────────── */
+  #cta {
+    padding: 120px 48px;
+    position: relative;
+    overflow: hidden;
+    text-align: center;
+  }
+
+  #cta::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 70% 60% at center, rgba(0,255,200,0.06) 0%, transparent 70%);
+  }
+
+  .cta-inner {
+    position: relative;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+
+  .cta-inner h2 {
+    margin-bottom: 20px;
+    font-size: clamp(36px, 4vw, 54px);
+  }
+
+  .cta-inner p {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.8;
+    margin-bottom: 48px;
+  }
+
+  .cta-actions {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  /* ─── FOOTER ────────────────────────────────── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 40px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .footer-logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 16px;
+    color: var(--cyan);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .footer-logo::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: var(--cyan);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  .footer-links {
+    display: flex;
+    gap: 24px;
+    list-style: none;
+  }
+
+  .footer-links a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 12px;
+    transition: color 0.2s;
+  }
+
+  .footer-links a:hover { color: var(--text); }
+
+  .footer-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #34d399;
+  }
+
+  .footer-status::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: #34d399;
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+  }
+
+  /* ─── SCROLL REVEAL ─────────────────────────── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ─── RESPONSIVE ────────────────────────────── */
+  @media (max-width: 1024px) {
+    .hero-inner { grid-template-columns: 1fr; gap: 48px; }
+    .hero-terminal { order: -1; }
+    .stats-wrapper { grid-template-columns: repeat(3, 1fr); }
+    .stat-item:nth-child(3) { border-right: none; }
+    .flow-steps { grid-template-columns: 1fr 1fr; gap: 40px; }
+    .timeline-layout { grid-template-columns: 1fr; }
+    .demo-layout { grid-template-columns: 1fr; }
+    .ct-header, .ct-row { grid-template-columns: 2fr repeat(2, 1fr); }
+    .ct-cell:nth-child(n+4) { display: none; }
+  }
+
+  @media (max-width: 768px) {
+    nav { padding: 16px 24px; }
+    .nav-links { display: none; }
+    section, #stats { padding: 60px 24px; }
+    #hero { padding: 100px 24px 60px; }
+    footer { padding: 32px 24px; flex-direction: column; gap: 24px; text-align: center; }
+    .features-grid { grid-template-columns: 1fr; }
+    .stats-wrapper { grid-template-columns: repeat(2, 1fr); }
+    .flow-steps { grid-template-columns: 1fr; }
+    .flow-connector { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─── NAV ──────────────────────────────────── -->
+<nav>
+  <a href="#" class="nav-logo">KinClaw</a>
+  <ul class="nav-links">
+    <li><a href="#how">Como funciona</a></li>
+    <li><a href="#timeline">Releases</a></li>
+    <li><a href="#comparison">Comparação</a></li>
+    <li><a href="#demo">Demo</a></li>
+    <li><a href="https://github.com" class="nav-cta">GitHub ↗</a></li>
+  </ul>
+</nav>
+
+<!-- ─── HERO ─────────────────────────────────── -->
+<section id="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-grid"></div>
+  <div class="hero-inner">
+    <div class="hero-content">
+      <div class="hero-badge"><span></span>rodando há 47 dias</div>
+      <h1>O dev que<br>nunca <em>dorme.</em></h1>
+      <p class="hero-sub">
+        KinClaw é um agente autônomo que analisa, melhora e evolui seu próprio código — 24 horas por dia, 7 dias por semana, sem parar.
+      </p>
+      <div class="hero-actions">
+        <a href="https://github.com" class="btn-primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.167 6.839 9.49.5.09.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.34-3.369-1.34-.455-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.091-.645.349-1.087.635-1.337-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.03-2.682-.103-.254-.448-1.27.098-2.647 0 0 .84-.268 2.75 1.026A9.578 9.578 0 0112 6.836a9.59 9.59 0 012.504.337c1.909-1.294 2.748-1.026 2.748-1.026.546 1.377.202 2.393.1 2.647.64.698 1.028 1.59 1.028 2.682 0 3.841-2.337 4.687-4.565 4.935.359.309.678.919.678 1.852 0 1.337-.012 2.415-.012 2.741 0 .267.18.576.688.479C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+          Ver no GitHub
+        </a>
+        <a href="#" class="btn-ghost">Ler Documentação →</a>
+      </div>
+    </div>
+    <div class="hero-terminal">
+      <div class="terminal-window">
+        <div class="terminal-bar">
+          <div class="terminal-dot"></div>
+          <div class="terminal-dot"></div>
+          <div class="terminal-dot"></div>
+          <span class="terminal-title">kinclaw — ciclo autônomo — live</span>
+        </div>
+        <div class="terminal-body" id="terminal-body">
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── STATS ─────────────────────────────────── -->
+<div id="stats">
+  <div class="stats-wrapper">
+    <div class="stat-item">
+      <div class="stat-value">v<span class="accent">0.7.3</span></div>
+      <div class="stat-label">Versão atual</div>
+      <div class="stat-delta">↑ 3 dias atrás</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value"><span class="accent">47</span>d</div>
+      <div class="stat-label">Uptime contínuo</div>
+      <div class="stat-delta">sem interrupções</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value"><span class="accent">127</span></div>
+      <div class="stat-label">Auto-melhorias</div>
+      <div class="stat-delta">↑ 3 hoje</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value">2.<span class="accent">4</span>K</div>
+      <div class="stat-label">GitHub Stars</div>
+      <div class="stat-delta">↑ +18 hoje</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value"><span class="accent">43</span></div>
+      <div class="stat-label">Contributors</div>
+      <div class="stat-delta">↑ 2 novos</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value"><span class="accent">3</span></div>
+      <div class="stat-label">Commits hoje</div>
+      <div class="stat-delta">1 PR merged</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── HOW IT WORKS ──────────────────────────── -->
+<section id="how">
+  <div class="container">
+    <div class="how-header reveal">
+      <div class="section-tag">Ciclo autônomo</div>
+      <h2>Como o KinClaw <em>funciona</em></h2>
+    </div>
+    <div class="flow-steps reveal">
+      <div class="flow-step">
+        <div class="step-num">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        </div>
+        <div class="flow-connector"></div>
+        <div class="step-title">Analisa o código</div>
+        <div class="step-desc">Lê o próprio repositório, compara com benchmarks e outros Claws</div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">
+          <svg viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <div class="flow-connector"></div>
+        <div class="step-title">Identifica oportunidades</div>
+        <div class="step-desc">Detecta gargalos de performance, gaps de segurança e melhorias</div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">
+          <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div class="flow-connector"></div>
+        <div class="step-title">Propõe via chat</div>
+        <div class="step-desc">Envia análise com impact, risco e confiança via Telegram ou Discord</div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="flow-connector"></div>
+        <div class="step-title">Você aprova</div>
+        <div class="step-desc">Simples: responda "aprova" ou "rejeita" no chat. Leva 3 segundos</div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">
+          <svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </div>
+        <div class="step-title">Executa sozinho</div>
+        <div class="step-desc">Escreve código, testa, faz commit, abre PR e faz deploy</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FEATURES ─────────────────────────────── -->
+<section id="features">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-tag">Diferenciais</div>
+      <h2>Por que KinClaw<br>é <em>diferente</em></h2>
+    </div>
+    <div class="features-grid reveal">
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </div>
+        <div class="feature-title">100% Autônomo</div>
+        <div class="feature-desc">
+          Depois da configuração inicial, o KinClaw não precisa de intervenção humana. Ele decide, propõe, executa e documenta — tudo sozinho.
+        </div>
+        <span class="feature-tag">zero babysitting</span>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </div>
+        <div class="feature-title">Evolução Contínua</div>
+        <div class="feature-desc">
+          Cada ciclo deixa o KinClaw mais eficiente. Ele aprende com cada melhoria, rejeição e sucesso — acumulando inteligência com o tempo.
+        </div>
+        <span class="feature-tag">melhora todo dia</span>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <div class="feature-title">Síntese dos 7 Claws</div>
+        <div class="feature-desc">
+          KinClaw analisou OpenClaw, Nanobot, ZeroClaw, IronClaw e outros — extraindo e implementando o melhor de cada um.
+        </div>
+        <span class="feature-tag">melhor da classe</span>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <div class="feature-title">Memória Inteligente</div>
+        <div class="feature-desc">
+          Cada decisão, aprovação ou rejeição é indexada. O KinClaw lembra do histórico e evita repetir os mesmos erros.
+        </div>
+        <span class="feature-tag">contexto persistente</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── TIMELINE ──────────────────────────────── -->
+<section id="timeline">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-tag">Histórico</div>
+      <h2>Releases <em>recentes</em></h2>
+    </div>
+    <div class="timeline-layout">
+      <div class="timeline-list reveal">
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-version">
+            Cache Inteligente
+            <span class="tl-ver-tag">v0.7.3</span>
+          </div>
+          <div class="tl-date">3 dias atrás · commit a7f23c1</div>
+          <div class="tl-changes">Sistema de cache adaptativo para resultados de análise frequentes. Reduz chamadas redundantes à API e acelera o ciclo de decisão.</div>
+          <span class="tl-metric">↑ +40% velocidade de ciclo</span>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-version">
+            Security Audit
+            <span class="tl-ver-tag">v0.7.2</span>
+          </div>
+          <div class="tl-date">5 dias atrás · commit b3e81d4</div>
+          <div class="tl-changes">Revisão completa de segurança iniciada pelo próprio KinClaw. Corrigiu 3 potenciais vetores de injeção e endureceu permissões de API.</div>
+          <span class="tl-metric">✓ 0 vulnerabilidades ativas</span>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-version">
+            Memory Optimization
+            <span class="tl-ver-tag">v0.7.1</span>
+          </div>
+          <div class="tl-date">1 semana atrás · commit f91a2c7</div>
+          <div class="tl-changes">Refatoração do sistema de memória vetorial. Índices comprimidos, lookups mais rápidos e janela de contexto expandida.</div>
+          <span class="tl-metric">↑ +25% resposta mais rápida</span>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-version">
+            Multi-channel
+            <span class="tl-ver-tag">v0.7.0</span>
+          </div>
+          <div class="tl-date">2 semanas atrás · commit 2d5e9b1</div>
+          <div class="tl-changes">Suporte simultâneo para Telegram, Discord e Slack. Aprovações podem chegar de qualquer canal.</div>
+          <span class="tl-metric">+ 3 canais suportados</span>
+        </div>
+      </div>
+
+      <div class="community-box reveal">
+        <div class="comm-title">Comunidade</div>
+        <div class="comm-stats">
+          <div class="comm-stat">
+            <div class="comm-stat-num">2<span class="unit">.4K</span></div>
+            <div class="comm-stat-label">GitHub Stars</div>
+          </div>
+          <div class="comm-stat">
+            <div class="comm-stat-num">340</div>
+            <div class="comm-stat-label">Discord</div>
+          </div>
+          <div class="comm-stat">
+            <div class="comm-stat-num">2<span class="unit">.1K</span></div>
+            <div class="comm-stat-label">Threads</div>
+          </div>
+          <div class="comm-stat">
+            <div class="comm-stat-num">43</div>
+            <div class="comm-stat-label">Contribuidores</div>
+          </div>
+        </div>
+        <div class="comm-links">
+          <a href="#" class="comm-link">
+            GitHub <span>star o repo ↗</span>
+          </a>
+          <a href="#" class="comm-link">
+            Discord <span>entrar no servidor ↗</span>
+          </a>
+          <a href="#" class="comm-link">
+            Threads <span>seguir updates ↗</span>
+          </a>
+          <a href="#" class="comm-link">
+            Manifesto <span>por que isso importa ↗</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── COMPARISON ────────────────────────────── -->
+<section id="comparison">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-tag">Os 7 Claws</div>
+      <h2>KinClaw sintetizou<br>o <em>melhor de cada</em></h2>
+    </div>
+    <div class="comparison-table reveal">
+      <div class="ct-header">
+        <div class="ct-cell">Agente</div>
+        <div class="ct-cell">Arquitetura</div>
+        <div class="ct-cell">Autonomia</div>
+        <div class="ct-cell">Memória</div>
+        <div class="ct-cell highlight">Auto-melhoria</div>
+      </div>
+      <div class="ct-row">
+        <div class="ct-cell">OpenClaw</div>
+        <div class="ct-cell"><span class="check">✓</span> Full-featured</div>
+        <div class="ct-cell"><span class="cross">✗</span> Parcial</div>
+        <div class="ct-cell"><span class="check">✓</span> Sim</div>
+        <div class="ct-cell highlight"><span class="cross">✗</span> Manual</div>
+      </div>
+      <div class="ct-row">
+        <div class="ct-cell">Nanobot</div>
+        <div class="ct-cell"><span class="check">✓</span> Clean code</div>
+        <div class="ct-cell"><span class="cross">✗</span> Não</div>
+        <div class="ct-cell"><span class="cross">✗</span> Não</div>
+        <div class="ct-cell highlight"><span class="cross">✗</span> Não</div>
+      </div>
+      <div class="ct-row">
+        <div class="ct-cell">ZeroClaw</div>
+        <div class="ct-cell"><span class="check">✓</span> Performance</div>
+        <div class="ct-cell"><span class="cross">✗</span> Parcial</div>
+        <div class="ct-cell"><span class="cross">✗</span> Não</div>
+        <div class="ct-cell highlight"><span class="cross">✗</span> Manual</div>
+      </div>
+      <div class="ct-row">
+        <div class="ct-cell">IronClaw</div>
+        <div class="ct-cell"><span class="check">✓</span> Privacy-first</div>
+        <div class="ct-cell"><span class="cross">✗</span> Não</div>
+        <div class="ct-cell"><span class="check">✓</span> Sim</div>
+        <div class="ct-cell highlight"><span class="cross">✗</span> Não</div>
+      </div>
+      <div class="ct-row" style="background: rgba(0,255,200,0.02);">
+        <div class="ct-cell" style="color: var(--cyan); font-weight: 600; font-family: 'Syne', sans-serif;">KinClaw</div>
+        <div class="ct-cell"><span class="check">✓</span> Síntese total</div>
+        <div class="ct-cell"><span class="check">✓</span> 100%</div>
+        <div class="ct-cell"><span class="check">✓</span> Persistente</div>
+        <div class="ct-cell highlight" style="color: var(--cyan);"><span class="check">✓</span> Contínua 24/7</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── DEMO ──────────────────────────────────── -->
+<section id="demo">
+  <div class="container">
+    <div class="demo-layout">
+      <div class="demo-info reveal">
+        <div class="section-tag">Demo ao vivo</div>
+        <h2>Uma conversa<br><em>típica</em></h2>
+        <p>
+          O KinClaw identifica uma oportunidade, calcula o impacto, avalia o risco e pede sua aprovação. Você responde com uma palavra. Ele faz o resto.
+        </p>
+        <ul class="demo-bullets">
+          <li>Análise automática a cada ciclo de 4h</li>
+          <li>Score de confiança em cada proposta</li>
+          <li>Execução completa: código → teste → commit → PR</li>
+          <li>Notificação após merge</li>
+          <li>Histórico completo auditável</li>
+        </ul>
+      </div>
+      <div id="chat-demo" class="reveal">
+        <div class="chat-ui">
+          <div class="chat-header">
+            <div class="chat-avatar">KC</div>
+            <div>
+              <div class="chat-name">KinClaw</div>
+              <div class="chat-status">online · ciclo ativo</div>
+            </div>
+          </div>
+          <div class="chat-messages" id="chat-messages">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── CTA ───────────────────────────────────── -->
+<section id="cta">
+  <div class="cta-inner reveal">
+    <div class="section-tag" style="justify-content: center; margin-bottom: 24px;">
+      <span>Comece agora</span>
+    </div>
+    <h2>Seu código melhora<br>enquanto você <em>dorme.</em></h2>
+    <p>KinClaw é open-source. Instale em minutos, configure uma vez, e deixe ele trabalhar. Para sempre.</p>
+    <div class="cta-actions">
+      <a href="https://github.com" class="btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.167 6.839 9.49.5.09.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.34-3.369-1.34-.455-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.091-.645.349-1.087.635-1.337-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.03-2.682-.103-.254-.448-1.27.098-2.647 0 0 .84-.268 2.75 1.026A9.578 9.578 0 0112 6.836a9.59 9.59 0 012.504.337c1.909-1.294 2.748-1.026 2.748-1.026.546 1.377.202 2.393.1 2.647.64.698 1.028 1.59 1.028 2.682 0 3.841-2.337 4.687-4.565 4.935.359.309.678.919.678 1.852 0 1.337-.012 2.415-.012 2.741 0 .267.18.576.688.479C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+        Clone no GitHub
+      </a>
+      <a href="#" class="btn-ghost">Ler o Manifesto →</a>
+      <a href="#" class="btn-ghost">Entrar no Discord →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FOOTER ────────────────────────────────── -->
+<footer>
+  <div class="footer-logo">KinClaw</div>
+  <ul class="footer-links">
+    <li><a href="#">GitHub</a></li>
+    <li><a href="#">Docs</a></li>
+    <li><a href="#">Discord</a></li>
+    <li><a href="#">Threads</a></li>
+    <li><a href="#">Manifesto</a></li>
+    <li><a href="#">MIT License</a></li>
+  </ul>
+  <div class="footer-status">rodando 24/7 · v0.7.3</div>
+</footer>
+
+<script>
+// ─── TERMINAL ANIMATION ────────────────────────
+const lines = [
+  { delay: 0,    cls: 't-sys',  time: '04:17:02', text: '— ciclo #1247 iniciado' },
+  { delay: 400,  cls: 't-kc',   time: '04:17:03', text: '[kinclaw] lendo 847 arquivos...' },
+  { delay: 900,  cls: 't-kc',   time: '04:17:08', text: '[kinclaw] analisando memory.py' },
+  { delay: 1400, cls: 't-warn', time: '04:17:09', text: '⚠  padrão ineficiente detectado linha 142' },
+  { delay: 1900, cls: 't-kc',   time: '04:17:10', text: '[kinclaw] calculando impacto...' },
+  { delay: 2400, cls: 't-kc',   time: '04:17:11', text: '[kinclaw] impact: +40% speed · risk: LOW · conf: 92%' },
+  { delay: 3000, cls: 't-kc',   time: '04:17:12', text: '[telegram] → proposta enviada ao usuário' },
+  { delay: 3800, cls: 't-user', time: '04:17:41', text: '> aprova' },
+  { delay: 4300, cls: 't-ok',   time: '04:17:41', text: '✓ aprovação recebida · executando...' },
+  { delay: 4800, cls: 't-kc',   time: '04:17:42', text: '[kinclaw] escrevendo patch em memory.py' },
+  { delay: 5300, cls: 't-kc',   time: '04:17:44', text: '[kinclaw] rodando testes... 47/47 ✓' },
+  { delay: 5800, cls: 't-kc',   time: '04:17:47', text: '[git] commit a7f23c1 — "perf: cache adaptive"' },
+  { delay: 6300, cls: 't-kc',   time: '04:17:48', text: '[github] PR #284 aberto · merging...' },
+  { delay: 7000, cls: 't-ok',   time: '04:17:52', text: '✓ v0.7.3 merged · deploy iniciado' },
+  { delay: 7600, cls: 't-sys',  time: '04:17:55', text: '— ciclo #1247 concluído em 53s' },
+];
+
+const termBody = document.getElementById('terminal-body');
+
+function renderLine(line, index) {
+  const div = document.createElement('div');
+  div.className = 'terminal-line';
+  div.style.animationDelay = line.delay + 'ms';
+  div.innerHTML = `<div class="t-line"><span class="t-time">${line.time}</span><span class="${line.cls}">${line.text}</span></div>`;
+  termBody.appendChild(div);
+}
+
+lines.forEach((l, i) => renderLine(l, i));
+
+// Add blinking cursor
+const cursor = document.createElement('div');
+cursor.className = 't-line';
+cursor.style.animationDelay = '8000ms';
+cursor.innerHTML = `<div class="t-line"><span class="t-time">04:17:56</span><span class="t-kc">[kinclaw] próximo ciclo em 3h59m <span class="cursor"></span></span></div>`;
+termBody.appendChild(cursor);
+
+// ─── CHAT DEMO ─────────────────────────────────
+const chatLines = [
+  { role: 'bot', delay: 200, text: 'Analisei meu código. Encontrei opportunity em <code>memory.py</code> linha 142.' },
+  { role: 'bot', delay: 1200, text: '📊 Impact: <strong>+40% speed</strong> · Risk: <span style="color:#34d399">LOW</span> · Confiança: <strong>92%</strong>' },
+  { role: 'bot', delay: 2200, text: 'Você aprova a implementação do cache adaptativo?', progress: true },
+  { role: 'user', delay: 3800, text: 'aprova' },
+  { role: 'bot', delay: 4600, text: '✅ Iniciando...' },
+  { role: 'bot', delay: 5400, text: '⚙️ Escrevendo patch... testando... 47/47 ✓' },
+  { role: 'bot', delay: 6800, text: '🔀 PR #284 aberto e merged. v0.7.3 deployado! 🚀' },
+];
+
+const chatMessages = document.getElementById('chat-messages');
+let chatStarted = false;
+
+function startChat() {
+  if (chatStarted) return;
+  chatStarted = true;
+
+  chatLines.forEach((msg) => {
+    setTimeout(() => {
+      const div = document.createElement('div');
+      div.className = `msg ${msg.role}`;
+      let inner = `<div class="msg-bubble">${msg.text}`;
+      if (msg.progress) {
+        inner += `<div class="progress-bar"><div class="progress-fill" style="--delay:0.2s;--target:0%"></div></div>`;
+      }
+      inner += `</div>`;
+      inner += `<div class="msg-meta">${msg.role === 'bot' ? 'KinClaw' : 'Você'}</div>`;
+      div.innerHTML = inner;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }, msg.delay);
+  });
+}
+
+// ─── SCROLL REVEAL ─────────────────────────────
+const revealEls = document.querySelectorAll('.reveal');
+
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+      if (entry.target.id === 'chat-demo' || entry.target.closest('#chat-demo')) {
+        startChat();
+      }
+    }
+  });
+}, { threshold: 0.15 });
+
+revealEls.forEach(el => observer.observe(el));
+
+// also observe the chat demo trigger
+const chatReveal = document.querySelector('#chat-demo');
+if (chatReveal) {
+  const chatObs = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) startChat();
+  }, { threshold: 0.3 });
+  chatObs.observe(chatReveal);
+}
+</script>
+</body>
+</html>
