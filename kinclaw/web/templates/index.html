@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KinClaw — Autonomous AI Agent</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+  <header>
+    <div class="logo">🤖 KinClaw</div>
+    <div class="tagline">Autonomous Self-Improving Agent</div>
+    <div id="status-badge" class="badge">● Connecting...</div>
+  </header>
+
+  <main>
+    <section class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-phase">—</div>
+        <div class="stat-label">Current Phase</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-proposals">—</div>
+        <div class="stat-label">Proposals Today</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-files">—</div>
+        <div class="stat-label">Source Files</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-lines">—</div>
+        <div class="stat-label">Lines of Code</div>
+      </div>
+    </section>
+
+    <section class="proposals-section">
+      <h2>Pending Proposals</h2>
+      <div id="proposals-list" class="proposals-list">
+        <p class="empty-msg">Loading proposals...</p>
+      </div>
+    </section>
+
+    <section class="about-section">
+      <h2>About KinClaw</h2>
+      <p>KinClaw is a 24/7 autonomous AI agent that analyzes its own codebase, proposes improvements, and implements them once you approve — all from Telegram or Discord.</p>
+      <ul>
+        <li>🔍 Self-analyzes code continuously</li>
+        <li>🤖 Uses Claude AI to generate proposals</li>
+        <li>✅ Awaits your approval before executing</li>
+        <li>📝 Commits, pushes, and opens PRs automatically</li>
+        <li>🔒 Safety guardrails prevent risky changes</li>
+      </ul>
+      <p><strong>Repository:</strong> <a href="https://github.com/eobarretooo/kinclaw" target="_blank">github.com/eobarretooo/kinclaw</a></p>
+    </section>
+  </main>
+
+  <footer>
+    <p>KinClaw v1.0.0 — Built with ❤️ and Claude AI</p>
+  </footer>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
