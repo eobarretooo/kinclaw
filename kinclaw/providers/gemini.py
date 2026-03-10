@@ -6,10 +6,10 @@ import json
 from kinclaw.logger import logger
 from kinclaw.providers.base import LLMProvider
 
-# Available Gemini models
+# Model name aliases — use the plain names that the API accepts
 GEMINI_MODELS = {
-    "gemini-2.5-flash": "gemini-2.5-flash-preview-04-17",
-    "gemini-2.5-flash-lite": "gemini-2.5-flash-lite-preview-06-17",
+    "gemini-2.5-flash": "gemini-2.5-flash",
+    "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
 }
 
 

@@ -25,7 +25,8 @@ def run(host: str | None, port: int | None):
     web_port = port or settings.web_port
 
     click.echo("🤖 Starting KinClaw...")
-    click.echo(f"📊 Dashboard: http://{web_host}:{web_port}")
+    browser_host = "localhost" if web_host == "0.0.0.0" else web_host
+    click.echo(f"📊 Dashboard: http://{browser_host}:{web_port}")
 
     async def _run_all():
         import uvicorn
