@@ -1,4 +1,4 @@
-HEAD
+
 # 🤖 KinClaw — Autonomous Self-Improving AI Agent
 
 KinClaw is a 24/7 autonomous AI agent that analyzes its own code, proposes improvements, and implements them once you approve — all from your Telegram or Discord.
@@ -105,4 +105,3 @@ Key `.env` variables:
 MIT
 =======
 # kinclaw
-fc20bf06dcef9a5c89747bf2f23da56f959c0f63
