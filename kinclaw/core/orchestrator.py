@@ -1,0 +1,89 @@
+"""Orchestrates agent startup, channel registration, and graceful shutdown."""
+from __future__ import annotations
+
+import asyncio
+import signal
+
+from kinclaw.channels.router import ChannelRouter
+from kinclaw.config import Settings
+from kinclaw.core.agent import KinClawAgent
+from kinclaw.core.bus import MessageBus
+from kinclaw.database.connection import init_db
+from kinclaw.logger import logger, setup_logging
+from kinclaw.providers.claude import ClaudeProvider
+
+
+class Orchestrator:
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+        self._bus = MessageBus()
+        self._router: ChannelRouter | None = None
+        self._agent: KinClawAgent | None = None
+
+    async def start(self) -> None:
+        setup_logging()
+        logger.info("KinClaw orchestrator starting")
+
+        await init_db(self._settings.database_url)
+
+        provider = ClaudeProvider(
+            api_key=self._settings.anthropic_api_key,
+            model=self._settings.claude_model,
+        )
+
+        self._router = ChannelRouter(self._bus)
+        await self._register_channels()
+
+        self._agent = KinClawAgent(
+            settings=self._settings,
+            provider=provider,
+            bus=self._bus,
+            router=self._router,
+        )
+
+        await self._router.start_all()
+
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
+            except (NotImplementedError, RuntimeError):
+                pass  # Windows or already-closed loop
+
+        await self._agent.run_forever()
+
+    async def stop(self) -> None:
+        logger.info("Graceful shutdown initiated")
+        if self._agent:
+            await self._agent.stop()
+        if self._router:
+            await self._router.stop_all()
+
+    async def _register_channels(self) -> None:
+        s = self._settings
+        active = s.active_channels
+
+        if "telegram" in active and s.telegram_bot_token:
+            from kinclaw.channels.telegram import TelegramChannel
+            ch = TelegramChannel(
+                token=s.telegram_bot_token,
+                allowed_ids=s.telegram_allowed_id_list,
+                bus=self._bus,
+            )
+            self._router.register(ch)
+            logger.info("Telegram channel registered")
+
+        if "discord" in active and s.discord_bot_token:
+            from kinclaw.channels.discord import DiscordChannel
+            ch = DiscordChannel(
+                token=s.discord_bot_token,
+                channel_id=int(s.discord_channel_id or 0),
+                allowed_ids=[],
+                bus=self._bus,
+            )
+            self._router.register(ch)
+            logger.info("Discord channel registered")
+
+    @property
+    def agent(self) -> KinClawAgent | None:
+        return self._agent
