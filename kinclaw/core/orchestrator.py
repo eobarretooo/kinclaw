@@ -10,7 +10,7 @@ from kinclaw.core.agent import KinClawAgent
 from kinclaw.core.bus import MessageBus
 from kinclaw.database.connection import init_db
 from kinclaw.logger import logger, setup_logging
-from kinclaw.providers.claude import ClaudeProvider
+from kinclaw.providers.base import LLMProvider
 
 
 class Orchestrator:
@@ -26,10 +26,7 @@ class Orchestrator:
 
         await init_db(self._settings.database_url)
 
-        provider = ClaudeProvider(
-            api_key=self._settings.anthropic_api_key,
-            model=self._settings.claude_model,
-        )
+        provider = self._build_provider()
 
         self._router = ChannelRouter(self._bus)
         await self._register_channels()
@@ -61,7 +58,7 @@ class Orchestrator:
 
     async def _register_channels(self) -> None:
         s = self._settings
-        active = s.active_channels
+        active = s.active_channels_list
 
         if "telegram" in active and s.telegram_bot_token:
             from kinclaw.channels.telegram import TelegramChannel
@@ -83,6 +80,16 @@ class Orchestrator:
             )
             self._router.register(ch)
             logger.info("Discord channel registered")
+
+    def _build_provider(self) -> LLMProvider:
+        s = self._settings
+        if s.provider == "gemini":
+            from kinclaw.providers.gemini import GeminiProvider
+            logger.info("Using Gemini provider: {}", s.gemini_model)
+            return GeminiProvider(api_key=s.gemini_api_key, model=s.gemini_model)
+        from kinclaw.providers.claude import ClaudeProvider
+        logger.info("Using Claude provider: {}", s.claude_model)
+        return ClaudeProvider(api_key=s.anthropic_api_key, model=s.claude_model)
 
     @property
     def agent(self) -> KinClawAgent | None:

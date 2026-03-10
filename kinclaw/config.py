@@ -9,9 +9,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # AI
+    # AI — provider: "claude" | "gemini"
+    provider: str = "claude"
     anthropic_api_key: str = "not-set"
     claude_model: str = "claude-sonnet-4-6"
+    gemini_api_key: str = "not-set"
+    gemini_model: str = "gemini-2.5-flash"
 
     # Telegram
     telegram_bot_token: str = ""

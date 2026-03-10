@@ -14,32 +14,42 @@ def cli():
 @click.option("--host", default=None, help="Web server host (overrides .env)")
 @click.option("--port", default=None, type=int, help="Web server port (overrides .env)")
 def run(host: str | None, port: int | None):
-    """Start KinClaw agent + web dashboard."""
-    import uvicorn
-    import threading
+    """Start KinClaw agent + web dashboard (same event loop)."""
     from kinclaw.config import get_settings
     from kinclaw.core.orchestrator import Orchestrator
+    from kinclaw.logger import setup_logging
 
+    setup_logging()
     settings = get_settings()
-    if host:
-        object.__setattr__(settings, "web_host", host)
-    if port:
-        object.__setattr__(settings, "web_port", port)
+    web_host = host or settings.web_host
+    web_port = port or settings.web_port
 
     click.echo("🤖 Starting KinClaw...")
+    click.echo(f"📊 Dashboard: http://{web_host}:{web_port}")
 
-    # Start web server in background thread
-    from kinclaw.web.app import app
+    async def _run_all():
+        import uvicorn
+        from kinclaw.web.app import app
 
-    def run_web():
-        uvicorn.run(app, host=settings.web_host, port=settings.web_port, log_level="warning")
+        orchestrator = Orchestrator(settings=settings)
 
-    web_thread = threading.Thread(target=run_web, daemon=True)
-    web_thread.start()
-    click.echo(f"📊 Dashboard: http://{settings.web_host}:{settings.web_port}")
+        web_config = uvicorn.Config(
+            app,
+            host=web_host,
+            port=web_port,
+            log_level="warning",
+            loop="none",          # use the running asyncio loop
+        )
+        web_server = uvicorn.Server(web_config)
 
-    orchestrator = Orchestrator(settings=settings)
-    asyncio.run(orchestrator.start())
+        # Run web server and agent loop concurrently
+        await asyncio.gather(
+            web_server.serve(),
+            orchestrator.start(),
+            return_exceptions=True,
+        )
+
+    asyncio.run(_run_all())
 
 
 @cli.command()
