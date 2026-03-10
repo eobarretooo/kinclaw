@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import signal
 
 from kinclaw.channels.router import ChannelRouter
 from kinclaw.config import Settings
@@ -39,14 +38,6 @@ class Orchestrator:
         )
 
         await self._router.start_all()
-
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            try:
-                loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
-            except (NotImplementedError, RuntimeError):
-                pass  # Windows or already-closed loop
-
         await self._agent.run_forever()
 
     async def stop(self) -> None:

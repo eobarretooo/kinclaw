@@ -34,11 +34,12 @@ class TelegramChannel(BaseChannel):
     async def stop(self) -> None:
         if self._app:
             try:
-                await self._app.updater.stop()
+                if self._app.updater.running:
+                    await self._app.updater.stop()
                 await self._app.stop()
                 await self._app.shutdown()
             except Exception as e:
-                logger.error("Telegram stop error: {}", e)
+                logger.debug("Telegram stop (ignored): {}", e)
         self._running = False
 
     async def send(self, msg: OutboundMessage) -> None:

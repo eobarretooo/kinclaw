@@ -34,22 +34,35 @@ def run(host: str | None, port: int | None):
         orchestrator = Orchestrator(settings=settings)
 
         web_config = uvicorn.Config(
-            app,
-            host=web_host,
-            port=web_port,
-            log_level="warning",
-            loop="none",          # use the running asyncio loop
+            app, host=web_host, port=web_port,
+            log_level="warning", loop="none",
         )
         web_server = uvicorn.Server(web_config)
 
-        # Run web server and agent loop concurrently
-        await asyncio.gather(
-            web_server.serve(),
-            orchestrator.start(),
-            return_exceptions=True,
-        )
+        web_task = asyncio.create_task(web_server.serve())
+        agent_task = asyncio.create_task(orchestrator.start())
 
-    asyncio.run(_run_all())
+        try:
+            await asyncio.gather(web_task, agent_task)
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
+        finally:
+            click.echo("\n🛑 Shutting down KinClaw...")
+            await orchestrator.stop()
+            web_server.should_exit = True
+            # Wait briefly for tasks to finish
+            for task in (web_task, agent_task):
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            click.echo("✅ KinClaw stopped.")
+
+    try:
+        asyncio.run(_run_all())
+    except KeyboardInterrupt:
+        pass
 
 
 @cli.command()
