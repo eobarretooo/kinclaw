@@ -75,3 +75,19 @@ def test_router_register_and_get():
     router.register(ch)
     assert router.get_channel("fake") is not None
     assert "fake" in router.channel_names
+
+
+@pytest.mark.asyncio
+async def test_router_broadcast_uses_default_chat_id():
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+
+    ch = FakeChannel(config={"allow_from": ["*"], "default_chat_id": "chat-1"}, bus=bus)
+    ch.sent = []
+    router.register(ch)
+
+    await router.broadcast("hello default")
+
+    assert len(ch.sent) == 1
+    assert ch.sent[0].chat_id == "chat-1"
+    assert ch.sent[0].content == "hello default"

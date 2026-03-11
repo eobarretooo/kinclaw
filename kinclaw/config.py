@@ -19,11 +19,13 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str = ""
     telegram_allowed_ids: str = ""
+    telegram_default_chat_id: str = ""
 
     # Discord
     discord_bot_token: str = ""
     discord_channel_id: str = ""
     discord_guild_id: str = ""
+    discord_allowed_ids: str = ""
 
     # GitHub
     github_token: str = "not-set"
@@ -60,6 +62,24 @@ class Settings(BaseSettings):
         if not self.telegram_allowed_ids:
             return []
         return [int(x.strip()) for x in self.telegram_allowed_ids.split(",") if x.strip()]
+
+    @property
+    def discord_allowed_id_list(self) -> list[int]:
+        if not self.discord_allowed_ids:
+            return []
+        return [int(x.strip()) for x in self.discord_allowed_ids.split(",") if x.strip()]
+
+    @property
+    def telegram_default_chat_id_int(self) -> int | None:
+        if not self.telegram_default_chat_id.strip():
+            return None
+        return int(self.telegram_default_chat_id.strip())
+
+    @property
+    def discord_default_chat_id_int(self) -> int | None:
+        if not self.discord_channel_id.strip():
+            return None
+        return int(self.discord_channel_id.strip())
 
 
 @functools.lru_cache(maxsize=1)

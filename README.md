@@ -103,5 +103,3 @@ Key `.env` variables:
 ## License
 
 MIT
-=======
-# kinclaw
