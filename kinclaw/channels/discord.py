@@ -10,8 +10,21 @@ from kinclaw.logger import logger
 class DiscordChannel(BaseChannel):
     name = "discord"
 
-    def __init__(self, token: str, channel_id: int, allowed_ids: list[int], bus: MessageBus) -> None:
-        super().__init__(config={"allow_from": [str(i) for i in allowed_ids] or ["*"]}, bus=bus)
+    def __init__(
+        self,
+        token: str,
+        channel_id: int,
+        allowed_ids: list[int],
+        default_chat_id: int | None,
+        bus: MessageBus,
+    ) -> None:
+        super().__init__(
+            config={
+                "allow_from": [str(i) for i in allowed_ids] or ["*"],
+                "default_chat_id": str(default_chat_id) if default_chat_id is not None else None,
+            },
+            bus=bus,
+        )
         self._token = token
         self._channel_id = channel_id
         self._client = None

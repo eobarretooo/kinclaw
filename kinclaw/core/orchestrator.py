@@ -56,6 +56,7 @@ class Orchestrator:
             ch = TelegramChannel(
                 token=s.telegram_bot_token,
                 allowed_ids=s.telegram_allowed_id_list,
+                default_chat_id=s.telegram_default_chat_id_int,
                 bus=self._bus,
             )
             self._router.register(ch)
@@ -66,7 +67,8 @@ class Orchestrator:
             ch = DiscordChannel(
                 token=s.discord_bot_token,
                 channel_id=int(s.discord_channel_id or 0),
-                allowed_ids=[],
+                allowed_ids=s.discord_allowed_id_list,
+                default_chat_id=s.discord_default_chat_id_int,
                 bus=self._bus,
             )
             self._router.register(ch)

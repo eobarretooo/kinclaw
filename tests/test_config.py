@@ -23,3 +23,16 @@ def test_get_settings_is_cached():
     s2 = get_settings()
     assert s1 is s2
     get_settings.cache_clear()
+
+
+def test_settings_id_parsing_helpers():
+    s = Settings(
+        telegram_allowed_ids="1, 2",
+        discord_allowed_ids="10,20",
+        telegram_default_chat_id="999",
+        discord_channel_id="555",
+    )
+    assert s.telegram_allowed_id_list == [1, 2]
+    assert s.discord_allowed_id_list == [10, 20]
+    assert s.telegram_default_chat_id_int == 999
+    assert s.discord_default_chat_id_int == 555
