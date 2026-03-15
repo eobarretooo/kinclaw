@@ -544,3 +544,55 @@ async def test_run_improvement_cycle_times_out_stale_pending_proposal_and_cleans
     assert record.status == ProposalStatus.TIMED_OUT.value
     assert approval is None
     assert agent._approval_queue.pending_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_run_improvement_cycle_marks_rehydrated_proposal_failed_on_processing_error():
+    await init_db("sqlite+aiosqlite:///:memory:")
+
+    settings = Settings(
+        anthropic_api_key="test",
+        github_token="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+    agent = KinClawAgent(
+        settings=settings, provider=AsyncMock(), bus=bus, router=router
+    )
+    agent.broadcast = AsyncMock()
+    agent._analyzer.analyze = AsyncMock(
+        return_value={"metrics": {"files": 1, "lines": 1}}
+    )
+    agent._comparator.find_gaps = AsyncMock(return_value=[])
+
+    proposal = Proposal(
+        id="proposal-rehydrated-failure",
+        title="Pending proposal fails while processing",
+        description="Previously persisted proposal with a stored approval.",
+        confidence_pct=77,
+    )
+    await agent._save_proposal(proposal, status=ProposalStatus.SENT)
+    await agent._approval_queue.submit(
+        Approval(
+            proposal_id=proposal.id,
+            approved=True,
+            channel="telegram",
+            raw_message=f"aprova {proposal.id}",
+        )
+    )
+    agent._executor.execute = AsyncMock(side_effect=RuntimeError("rehydrated boom"))
+
+    with pytest.raises(RuntimeError, match="rehydrated boom"):
+        await agent.run_improvement_cycle()
+
+    async with get_session() as session:
+        proposal_repo = ProposalRepo(session)
+        approval_repo = ApprovalRepo(session)
+        record = await proposal_repo.get(proposal.id)
+        approval = await approval_repo.get_by_proposal_id(proposal.id)
+
+    assert record is not None
+    assert record.status == ProposalStatus.FAILED.value
+    assert approval is None
+    assert agent.state.error == "rehydrated boom"

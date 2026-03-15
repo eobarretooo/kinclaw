@@ -17,7 +17,7 @@ from kinclaw.channels.router import ChannelRouter
 from kinclaw.config import Settings
 from kinclaw.core.bus import MessageBus
 from kinclaw.core.state import AgentPhase, AgentState
-from kinclaw.core.types import InboundMessage, Proposal, ProposalStatus
+from kinclaw.core.types import Approval, InboundMessage, Proposal, ProposalStatus
 from kinclaw.database.connection import get_session
 from kinclaw.database.queries import ProposalRepo
 from kinclaw.guardrails.audit import AuditLogger
@@ -157,9 +157,7 @@ class KinClawAgent:
         except Exception as exc:
             self._state.error = str(exc)
             if proposal is not None:
-                await self._audit.log("cycle_failed", detail=str(exc), result="failed")
-                await self._update_proposal_status(proposal.id, ProposalStatus.FAILED)
-                await self._approval_queue.forget(proposal.id)
+                await self._mark_proposal_failed(proposal.id, str(exc))
             raise
         finally:
             self._state.current_proposal_id = None
@@ -259,7 +257,11 @@ class KinClawAgent:
             if approval is None:
                 continue
 
-            await self._process_approval_decision(proposal, approval)
+            try:
+                await self._process_approval_decision(proposal, approval)
+            except Exception as exc:
+                await self._mark_proposal_failed(proposal.id, str(exc))
+                raise
 
     async def _process_approval_decision(
         self, proposal: Proposal, approval: Approval
@@ -348,6 +350,11 @@ class KinClawAgent:
         async with get_session() as session:
             repo = ProposalRepo(session)
             await repo.update_status(proposal_id, status)
+
+    async def _mark_proposal_failed(self, proposal_id: str, detail: str) -> None:
+        await self._audit.log("cycle_failed", detail=detail, result="failed")
+        await self._update_proposal_status(proposal_id, ProposalStatus.FAILED)
+        await self._approval_queue.forget(proposal_id)
 
     async def _pending_approval_proposal_ids(self) -> list[str]:
         pending_ids = set(self._approval_queue.pending_ids())

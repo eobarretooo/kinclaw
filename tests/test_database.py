@@ -1,4 +1,7 @@
+import sqlite3
+
 import pytest
+from sqlalchemy import text
 from kinclaw.database.connection import init_db, get_session
 from kinclaw.database.queries import ApprovalRepo, ProposalRepo
 from kinclaw.core.types import Approval, Proposal
@@ -87,3 +90,57 @@ async def test_save_and_fetch_approval_decision():
         assert fetched is not None
         assert fetched.decision == "rejected"
         assert fetched.channel == "discord"
+
+
+@pytest.mark.asyncio
+async def test_init_db_migrates_existing_pre_task3_sqlite_schema(tmp_path):
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE proposals (
+            id TEXT PRIMARY KEY,
+            title VARCHAR(256),
+            description TEXT,
+            impact_pct INTEGER,
+            risk VARCHAR(16),
+            confidence_pct INTEGER,
+            estimated_hours FLOAT,
+            status VARCHAR(32),
+            reference_claw VARCHAR(64),
+            created_at DATETIME,
+            updated_at DATETIME
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action VARCHAR(128),
+            actor VARCHAR(64),
+            detail TEXT,
+            result VARCHAR(16),
+            created_at DATETIME
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    await init_db(f"sqlite+aiosqlite:///{db_path}")
+
+    async with get_session() as session:
+        column_rows = await session.execute(text("PRAGMA table_info(proposals)"))
+        table_rows = await session.execute(
+            text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='approval_decisions'"
+            )
+        )
+
+    column_names = {row[1] for row in column_rows}
+    table_names = {row[0] for row in table_rows}
+
+    assert "code_changes" in column_names
+    assert "test_changes" in column_names
+    assert "approval_decisions" in table_names
