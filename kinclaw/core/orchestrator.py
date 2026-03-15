@@ -1,7 +1,9 @@
 """Orchestrates agent startup, channel registration, and graceful shutdown."""
+
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 
 from kinclaw.channels.router import ChannelRouter
 from kinclaw.config import Settings
@@ -10,6 +12,7 @@ from kinclaw.core.bus import MessageBus
 from kinclaw.database.connection import init_db
 from kinclaw.logger import logger, setup_logging
 from kinclaw.providers.base import LLMProvider
+from kinclaw.web.app import set_agent_state
 
 
 class Orchestrator:
@@ -35,6 +38,7 @@ class Orchestrator:
             provider=provider,
             bus=self._bus,
             router=self._router,
+            state_publisher=set_agent_state,
         )
 
         await self._router.start_all()
@@ -50,20 +54,23 @@ class Orchestrator:
     async def _register_channels(self) -> None:
         s = self._settings
         active = s.active_channels_list
+        router = cast(ChannelRouter, self._router)
 
         if "telegram" in active and s.telegram_bot_token:
             from kinclaw.channels.telegram import TelegramChannel
+
             ch = TelegramChannel(
                 token=s.telegram_bot_token,
                 allowed_ids=s.telegram_allowed_id_list,
                 default_chat_id=s.telegram_default_chat_id_int,
                 bus=self._bus,
             )
-            self._router.register(ch)
+            router.register(ch)
             logger.info("Telegram channel registered")
 
         if "discord" in active and s.discord_bot_token:
             from kinclaw.channels.discord import DiscordChannel
+
             ch = DiscordChannel(
                 token=s.discord_bot_token,
                 channel_id=int(s.discord_channel_id or 0),
@@ -71,16 +78,18 @@ class Orchestrator:
                 default_chat_id=s.discord_default_chat_id_int,
                 bus=self._bus,
             )
-            self._router.register(ch)
+            router.register(ch)
             logger.info("Discord channel registered")
 
     def _build_provider(self) -> LLMProvider:
         s = self._settings
         if s.provider == "gemini":
             from kinclaw.providers.gemini import GeminiProvider
+
             logger.info("Using Gemini provider: {}", s.gemini_model)
             return GeminiProvider(api_key=s.gemini_api_key, model=s.gemini_model)
         from kinclaw.providers.claude import ClaudeProvider
+
         logger.info("Using Claude provider: {}", s.claude_model)
         return ClaudeProvider(api_key=s.anthropic_api_key, model=s.claude_model)
 

@@ -1,4 +1,5 @@
 """Agent state machine."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -23,6 +24,7 @@ class AgentState:
         self.proposals_date = date.today()
         self.current_proposal_id: str | None = None
         self.error: str | None = None
+        self.last_analysis_metrics: dict = {}
 
     def reset_daily_counters_if_new_day(self) -> None:
         today = date.today()
@@ -37,4 +39,5 @@ class AgentState:
             "proposals_today": self.proposals_today,
             "current_proposal_id": self.current_proposal_id,
             "error": self.error,
+            "last_analysis_metrics": self.last_analysis_metrics,
         }

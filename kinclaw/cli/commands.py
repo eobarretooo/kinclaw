@@ -1,4 +1,5 @@
 """Click CLI commands for KinClaw."""
+
 from __future__ import annotations
 
 import asyncio
@@ -35,8 +36,11 @@ def run(host: str | None, port: int | None):
         orchestrator = Orchestrator(settings=settings)
 
         web_config = uvicorn.Config(
-            app, host=web_host, port=web_port,
-            log_level="warning", loop="none",
+            app,
+            host=web_host,
+            port=web_port,
+            log_level="warning",
+            loop="none",
         )
         web_server = uvicorn.Server(web_config)
 
@@ -70,12 +74,15 @@ def run(host: str | None, port: int | None):
 def status():
     """Show current agent status."""
     import httpx
+
     try:
         r = httpx.get("http://localhost:8000/api/status", timeout=3)
         data = r.json()
         click.echo(f"Status:  {data['status']}")
         click.echo(f"Phase:   {data.get('phase', 'unknown')}")
         click.echo(f"Proposals today: {data.get('proposals_today', 0)}")
+        click.echo(f"Files:   {data.get('files', 0)}")
+        click.echo(f"Lines:   {data.get('lines', 0)}")
     except Exception as e:
         click.echo(f"Could not connect to KinClaw: {e}", err=True)
         raise SystemExit(1)
@@ -85,6 +92,7 @@ def status():
 def list_proposals():
     """List pending proposals."""
     import httpx
+
     try:
         r = httpx.get("http://localhost:8000/api/proposals/", timeout=3)
         items = r.json()

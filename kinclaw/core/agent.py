@@ -1,8 +1,10 @@
 """KinClaw autonomous agent — the main brain."""
+
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Callable
 
 from kinclaw.auto_improve.analyzer import SelfAnalyzer
 from kinclaw.auto_improve.comparator import ClawComparator
@@ -15,6 +17,8 @@ from kinclaw.config import Settings
 from kinclaw.core.bus import MessageBus
 from kinclaw.core.state import AgentPhase, AgentState
 from kinclaw.core.types import InboundMessage, Proposal
+from kinclaw.database.connection import get_session
+from kinclaw.database.queries import ProposalRepo
 from kinclaw.guardrails.audit import AuditLogger
 from kinclaw.guardrails.limits import RateLimiter
 from kinclaw.guardrails.safety import SafetyChecker
@@ -31,12 +35,14 @@ class KinClawAgent:
         provider: LLMProvider,
         bus: MessageBus,
         router: ChannelRouter,
+        state_publisher: Callable[[dict], None] | None = None,
     ) -> None:
         self._settings = settings
         self._provider = provider
         self._bus = bus
         self._router = router
         self._state = AgentState()
+        self._state_publisher = state_publisher
 
         # Sub-systems
         self._analyzer = SelfAnalyzer(base_path=Path("."))
@@ -57,6 +63,7 @@ class KinClawAgent:
             audit=self._audit,
         )
         self._inbound_task: asyncio.Task | None = None
+        self._publish_state()
 
     async def start_listening(self) -> None:
         """Start the inbound message listener task."""
@@ -65,14 +72,18 @@ class KinClawAgent:
     async def analyze_self(self) -> dict:
         """Analyze own codebase and return metrics + gaps."""
         self._state.phase = AgentPhase.ANALYZING
+        self._publish_state()
         analysis = await self._analyzer.analyze()
         gaps = await self._comparator.find_gaps(analysis)
         analysis["gaps"] = gaps
+        self._state.last_analysis_metrics = analysis.get("metrics", {})
+        self._publish_state()
         return analysis
 
     async def propose_improvements(self, analysis: dict) -> list[Proposal]:
         """Generate improvement proposals from analysis gaps."""
         self._state.phase = AgentPhase.PROPOSING
+        self._publish_state()
         gaps = analysis.get("gaps", [])
         if not gaps:
             logger.info("No gaps found in this analysis cycle")
@@ -88,7 +99,10 @@ class KinClawAgent:
         self._state.reset_daily_counters_if_new_day()
 
         if self._state.proposals_today >= self._settings.max_proposals_per_day:
-            logger.info("Daily proposal limit reached ({}), sleeping", self._settings.max_proposals_per_day)
+            logger.info(
+                "Daily proposal limit reached ({}), sleeping",
+                self._settings.max_proposals_per_day,
+            )
             return
 
         logger.info("Starting improvement cycle")
@@ -108,6 +122,7 @@ class KinClawAgent:
         if not proposals:
             logger.info("No proposals generated this cycle")
             self._state.phase = AgentPhase.IDLE
+            self._publish_state()
             return
 
         # 3. Take best proposal (highest confidence)
@@ -116,46 +131,72 @@ class KinClawAgent:
         self._state.proposals_today += 1
         self._state.current_proposal_id = proposal.id
         self._state.phase = AgentPhase.AWAITING_APPROVAL
+        self._publish_state()
+        await self._save_proposal(proposal, status="pending")
 
         # 4. Notify owner
         notify_text = self._format_proposal_notification(proposal)
         await self.broadcast(notify_text)
-        logger.info("Proposal sent: {} (confidence: {}%)", proposal.title, proposal.confidence_pct)
+        logger.info(
+            "Proposal sent: {} (confidence: {}%)",
+            proposal.title,
+            proposal.confidence_pct,
+        )
 
         # 5. Wait for approval
         self._approval_queue.register_proposal(proposal.id)
         approval = await self._approval_queue.get_for(proposal.id, timeout=3600)
 
         if approval is None:
-            await self.broadcast(f"⏰ Proposal timed out with no response: {proposal.title}")
+            await self.broadcast(
+                f"⏰ Proposal timed out with no response: {proposal.title}"
+            )
             logger.info("Proposal {} timed out", proposal.id)
             self._state.phase = AgentPhase.IDLE
             self._state.current_proposal_id = None
+            self._publish_state()
             return
 
         # 6. Execute if approved
-        self._state.phase = AgentPhase.EXECUTING
+        await self._update_proposal_status(
+            proposal.id, "approved" if approval.approved else "rejected"
+        )
+        if approval.approved:
+            self._state.phase = AgentPhase.EXECUTING
+            self._publish_state()
+            await self._update_proposal_status(proposal.id, "executing")
+        else:
+            self._state.phase = AgentPhase.REPORTING
+            self._publish_state()
         result = await self._executor.execute(
             proposal, approval, notify_fn=self.broadcast
         )
 
         # 7. Report
         self._state.phase = AgentPhase.REPORTING
+        self._publish_state()
         if result.get("success"):
             await self._audit.log("cycle_success", detail=proposal.title)
+            await self._update_proposal_status(proposal.id, "done")
         else:
             await self._audit.log(
                 "cycle_failed",
                 detail=str(result.get("reason")),
                 result="failed",
             )
+            await self._update_proposal_status(
+                proposal.id,
+                "rejected" if result.get("reason") == "rejected" else "failed",
+            )
 
         self._state.phase = AgentPhase.IDLE
         self._state.current_proposal_id = None
+        self._publish_state()
 
     async def run_forever(self) -> None:
         """Perpetual loop: cycle, sleep, repeat."""
         self._state.is_running = True
+        self._publish_state()
         await self.start_listening()
         logger.info("KinClaw started — running forever")
         await self.broadcast("🤖 KinClaw is online and ready!")
@@ -168,16 +209,20 @@ class KinClawAgent:
             except Exception:
                 logger.exception("Unhandled error in improvement cycle")
                 self._state.phase = AgentPhase.IDLE
+                self._publish_state()
 
             if not self._state.is_running:
                 break
 
-            logger.info("Sleeping {}s before next cycle", self._settings.sleep_between_analyses)
+            logger.info(
+                "Sleeping {}s before next cycle", self._settings.sleep_between_analyses
+            )
             await asyncio.sleep(self._settings.sleep_between_analyses)
 
     async def stop(self) -> None:
         """Gracefully stop the agent."""
         self._state.is_running = False
+        self._publish_state()
         if self._inbound_task:
             self._inbound_task.cancel()
             try:
@@ -230,3 +275,17 @@ class KinClawAgent:
     @property
     def state(self) -> AgentState:
         return self._state
+
+    def _publish_state(self) -> None:
+        if self._state_publisher is not None:
+            self._state_publisher(self._state.to_dict())
+
+    async def _save_proposal(self, proposal: Proposal, status: str = "pending") -> None:
+        async with get_session() as session:
+            repo = ProposalRepo(session)
+            await repo.save_proposal(proposal, status=status)
+
+    async def _update_proposal_status(self, proposal_id: str, status: str) -> None:
+        async with get_session() as session:
+            repo = ProposalRepo(session)
+            await repo.update_status(proposal_id, status)

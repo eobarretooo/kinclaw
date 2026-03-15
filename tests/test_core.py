@@ -5,7 +5,9 @@ from kinclaw.core.agent import KinClawAgent
 from kinclaw.core.bus import MessageBus
 from kinclaw.channels.router import ChannelRouter
 from kinclaw.config import Settings
-from kinclaw.core.types import Proposal
+from kinclaw.core.types import Approval, Proposal
+from kinclaw.database.connection import get_session, init_db
+from kinclaw.database.queries import ProposalRepo
 
 
 def test_agent_state_initial():
@@ -26,6 +28,7 @@ def test_agent_state_to_dict():
     d = state.to_dict()
     assert d["phase"] == "idle"
     assert d["is_running"] is False
+    assert d["last_analysis_metrics"] == {}
 
 
 @pytest.mark.asyncio
@@ -36,7 +39,9 @@ async def test_agent_analyze_self_returns_analysis():
     bus = MessageBus()
     router = ChannelRouter(bus)
 
-    agent = KinClawAgent(settings=settings, provider=mock_provider, bus=bus, router=router)
+    agent = KinClawAgent(
+        settings=settings, provider=mock_provider, bus=bus, router=router
+    )
     analysis = await agent.analyze_self()
 
     assert "metrics" in analysis
@@ -50,7 +55,9 @@ async def test_agent_format_proposal_notification():
     mock_provider = AsyncMock()
     bus = MessageBus()
     router = ChannelRouter(bus)
-    agent = KinClawAgent(settings=settings, provider=mock_provider, bus=bus, router=router)
+    agent = KinClawAgent(
+        settings=settings, provider=mock_provider, bus=bus, router=router
+    )
 
     proposal = Proposal(
         title="Test improvement",
@@ -74,17 +81,126 @@ async def test_agent_handles_inbound_approval():
     mock_provider = AsyncMock()
     bus = MessageBus()
     router = ChannelRouter(bus)
-    agent = KinClawAgent(settings=settings, provider=mock_provider, bus=bus, router=router)
+    agent = KinClawAgent(
+        settings=settings, provider=mock_provider, bus=bus, router=router
+    )
 
     # Set a current proposal being awaited
     agent._state.current_proposal_id = "proposal-123"
     agent._approval_queue.register_proposal("proposal-123")
 
     from kinclaw.core.types import InboundMessage
-    msg = InboundMessage(channel="telegram", sender_id="123", chat_id="123", content="aprova")
+
+    msg = InboundMessage(
+        channel="telegram", sender_id="123", chat_id="123", content="aprova"
+    )
     await agent._handle_inbound(msg)
 
     # Check it was submitted to queue
     approval = await agent._approval_queue.get_for("proposal-123", timeout=0.5)
     assert approval is not None
     assert approval.approved is True
+
+
+@pytest.mark.asyncio
+async def test_run_improvement_cycle_persists_selected_proposal_and_statuses():
+    await init_db("sqlite+aiosqlite:///:memory:")
+
+    settings = Settings(
+        anthropic_api_key="test",
+        github_token="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+    agent = KinClawAgent(
+        settings=settings, provider=AsyncMock(), bus=bus, router=router
+    )
+
+    proposal = Proposal(
+        id="proposal-persisted",
+        title="Persist me",
+        description="Store proposal lifecycle in the database.",
+        impact_pct=25,
+        risk="low",
+        confidence_pct=91,
+        estimated_hours=1.5,
+        reference_claw="ref-claw",
+    )
+
+    agent._analyzer.analyze = AsyncMock(
+        return_value={"metrics": {"files": 7, "lines": 101}}
+    )
+    agent._comparator.find_gaps = AsyncMock(return_value=[{"type": "gap"}])
+    agent._proposer.generate = AsyncMock(return_value=[proposal])
+    agent.broadcast = AsyncMock()
+    agent._approval_queue.get_for = AsyncMock(
+        return_value=Approval(
+            proposal_id=proposal.id,
+            approved=True,
+            channel="telegram",
+            raw_message="aprova",
+        )
+    )
+    agent._executor.execute = AsyncMock(return_value={"success": True})
+
+    await agent.run_improvement_cycle()
+
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        record = await repo.get(proposal.id)
+
+    assert record is not None
+    assert record.title == proposal.title
+    assert record.status == "done"
+    assert agent.state.last_analysis_metrics == {"files": 7, "lines": 101}
+
+
+@pytest.mark.asyncio
+async def test_run_improvement_cycle_marks_rejected_proposal_in_database():
+    await init_db("sqlite+aiosqlite:///:memory:")
+
+    settings = Settings(
+        anthropic_api_key="test",
+        github_token="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+    agent = KinClawAgent(
+        settings=settings, provider=AsyncMock(), bus=bus, router=router
+    )
+
+    proposal = Proposal(
+        id="proposal-rejected",
+        title="Reject me",
+        description="Rejected proposal",
+        confidence_pct=75,
+    )
+
+    agent._analyzer.analyze = AsyncMock(
+        return_value={"metrics": {"files": 2, "lines": 9}}
+    )
+    agent._comparator.find_gaps = AsyncMock(return_value=[{"type": "gap"}])
+    agent._proposer.generate = AsyncMock(return_value=[proposal])
+    agent.broadcast = AsyncMock()
+    agent._approval_queue.get_for = AsyncMock(
+        return_value=Approval(
+            proposal_id=proposal.id,
+            approved=False,
+            channel="telegram",
+            raw_message="nega",
+        )
+    )
+    agent._executor.execute = AsyncMock(
+        return_value={"success": False, "reason": "rejected"}
+    )
+
+    await agent.run_improvement_cycle()
+
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        record = await repo.get(proposal.id)
+
+    assert record is not None
+    assert record.status == "rejected"

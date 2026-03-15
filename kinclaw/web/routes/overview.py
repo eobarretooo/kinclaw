@@ -1,4 +1,5 @@
 """Dashboard overview route."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,10 +20,14 @@ async def dashboard(request: Request):
 @router.get("/api/status")
 async def status():
     from kinclaw.web.app import get_agent_state
+
     state = get_agent_state()
+    metrics = state.get("last_analysis_metrics", {})
     return {
         "status": "running" if state.get("is_running") else "idle",
         "version": "1.0.0",
         "name": "KinClaw",
+        "files": metrics.get("files", 0),
+        "lines": metrics.get("lines", 0),
         **state,
     }
