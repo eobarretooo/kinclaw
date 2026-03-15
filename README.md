@@ -22,14 +22,20 @@ KinClaw is a 24/7 autonomous AI agent that analyzes its own code, proposes impro
 git clone https://github.com/eobarretooo/kinclaw
 cd kinclaw
 
+# Create an isolated environment
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+
 # Configure
 cp .env.example .env
-# Edit .env with your tokens (ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, etc.)
+# Edit .env with your tokens (at minimum ANTHROPIC_API_KEY)
 
-# Install
-pip install -r requirements.txt
+# Run the test suite
+python -m pytest
 
-# Run
+# Start the app
 python -m kinclaw run
 ```
 
@@ -54,7 +60,7 @@ Reply to KinClaw in any channel with:
 
 ```bash
 cp .env.example .env
-# Edit .env
+# Edit .env with the same values used locally
 docker-compose up -d
 ```
 
