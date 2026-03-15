@@ -1,4 +1,5 @@
 """Analyzes KinClaw's own codebase for metrics and improvement opportunities."""
+
 from __future__ import annotations
 
 import ast
@@ -15,27 +16,85 @@ class SelfAnalyzer:
         """Return metrics dict for the kinclaw/ package."""
         pkg = self._base / "kinclaw"
         py_files = list(pkg.rglob("*.py")) if pkg.exists() else []
+        test_files = self._collect_test_files()
 
         total_lines = total_funcs = total_classes = 0
+        async_functions = documented_nodes = documentable_nodes = 0
         parse_errors = 0
+        largest_files: list[dict] = []
 
         for f in py_files:
             try:
                 src = f.read_text(encoding="utf-8", errors="ignore")
-                total_lines += src.count("\n") + 1
+                line_count = src.count("\n") + 1
+                total_lines += line_count
                 tree = ast.parse(src)
-                total_funcs += sum(1 for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
-                total_classes += sum(1 for n in ast.walk(tree) if isinstance(n, ast.ClassDef))
+                functions = [
+                    n
+                    for n in ast.walk(tree)
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                ]
+                classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+                total_funcs += len(functions)
+                async_functions += sum(
+                    1 for n in functions if isinstance(n, ast.AsyncFunctionDef)
+                )
+                total_classes += len(classes)
+
+                nodes = [tree, *functions, *classes]
+                documentable_nodes += len(nodes)
+                documented_nodes += sum(1 for n in nodes if ast.get_docstring(n))
+                largest_files.append(
+                    {
+                        "path": str(f.relative_to(self._base)),
+                        "lines": line_count,
+                    }
+                )
             except SyntaxError:
                 parse_errors += 1
 
-        logger.info("SelfAnalyzer: {} files, {} lines, {} functions", len(py_files), total_lines, total_funcs)
+        largest_files.sort(key=lambda item: item["lines"], reverse=True)
+        docstring_coverage_pct = (
+            round((documented_nodes / documentable_nodes) * 100, 1)
+            if documentable_nodes
+            else 0.0
+        )
+
+        logger.info(
+            "SelfAnalyzer: {} files, {} lines, {} functions",
+            len(py_files),
+            total_lines,
+            total_funcs,
+        )
         return {
             "metrics": {
                 "files": len(py_files),
                 "lines": total_lines,
                 "functions": total_funcs,
                 "classes": total_classes,
+                "async_functions": async_functions,
+                "docstring_coverage_pct": docstring_coverage_pct,
+                "test_files": len(test_files),
+                "non_test_files": len(
+                    [path for path in py_files if not self._is_test_file(path)]
+                ),
+                "largest_files": largest_files[:3],
                 "parse_errors": parse_errors,
             }
         }
+
+    def _collect_test_files(self) -> list[Path]:
+        tests_dir = self._base / "tests"
+        test_files = list(tests_dir.rglob("test_*.py")) if tests_dir.exists() else []
+        test_files.extend(
+            path
+            for path in (self._base / "kinclaw").rglob("*.py")
+            if self._is_test_file(path)
+        )
+        return test_files
+
+    @staticmethod
+    def _is_test_file(path: Path) -> bool:
+        return any(part == "tests" for part in path.parts) or path.name.startswith(
+            "test_"
+        )

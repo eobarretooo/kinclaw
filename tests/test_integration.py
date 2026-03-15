@@ -1,4 +1,5 @@
 """Integration tests for the full approval-execution pipeline."""
+
 import pytest
 from unittest.mock import AsyncMock
 from kinclaw.approval.parser import ApprovalParser
@@ -85,8 +86,7 @@ async def test_safety_blocks_forbidden_path():
         code_changes={"kinclaw/guardrails/safety.py": "# hacked"},
     )
     approval = Approval(
-        proposal_id=proposal.id, approved=True,
-        channel="test", raw_message="aprova"
+        proposal_id=proposal.id, approved=True, channel="test", raw_message="aprova"
     )
 
     result = await executor.execute(proposal, approval)
@@ -109,12 +109,14 @@ async def test_rate_limiter_blocks_execution():
     proposal = Proposal(
         title="Safe proposal",
         description="Valid but limit exceeded",
-        impact_pct=5, risk="low", confidence_pct=80,
-        estimated_hours=1, code_changes={},
+        impact_pct=5,
+        risk="low",
+        confidence_pct=80,
+        estimated_hours=1,
+        code_changes={},
     )
     approval = Approval(
-        proposal_id=proposal.id, approved=True,
-        channel="test", raw_message="aprova"
+        proposal_id=proposal.id, approved=True, channel="test", raw_message="aprova"
     )
 
     result = await executor.execute(proposal, approval)
@@ -123,22 +125,44 @@ async def test_rate_limiter_blocks_execution():
 
 
 @pytest.mark.asyncio
-async def test_analyzer_and_comparator_integration():
+async def test_analyzer_and_comparator_integration(tmp_path):
     """SelfAnalyzer output feeds correctly into ClawComparator."""
-    from pathlib import Path
     from kinclaw.auto_improve.analyzer import SelfAnalyzer
     from kinclaw.auto_improve.comparator import ClawComparator
 
-    analyzer = SelfAnalyzer(base_path=Path("."))
-    comparator = ClawComparator(ref_path=Path("ref"))
+    pkg = tmp_path / "kinclaw"
+    pkg.mkdir()
+    (pkg / "service.py").write_text(
+        "def helper():\n    return 1\n",
+        encoding="utf-8",
+    )
+    ref_pkg = tmp_path / "ref" / "nanobot" / "kinclaw"
+    ref_pkg.mkdir(parents=True)
+    (ref_pkg / "service.py").write_text(
+        '"""Reference service."""\n\n'
+        "async def helper():\n"
+        '    """Better helper."""\n'
+        "    return 1\n",
+        encoding="utf-8",
+    )
+    ref_tests = tmp_path / "ref" / "nanobot" / "tests"
+    ref_tests.mkdir(parents=True)
+    (ref_tests / "test_service.py").write_text(
+        "def test_helper():\n    assert True\n",
+        encoding="utf-8",
+    )
+
+    analyzer = SelfAnalyzer(base_path=tmp_path)
+    comparator = ClawComparator(ref_path=tmp_path / "ref")
 
     analysis = await analyzer.analyze()
     gaps = await comparator.find_gaps(analysis)
 
-    # kinclaw package now has enough files to produce gaps
     assert isinstance(gaps, list)
     assert len(gaps) > 0
     for gap in gaps:
         assert "type" in gap
         assert "reference_claw" in gap
         assert "self_metrics" in gap
+        assert "reference_metrics" in gap
+        assert "evidence" in gap

@@ -1,25 +1,32 @@
 """Compares KinClaw metrics against the 7 reference Claws."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
+from kinclaw.auto_improve.ref_metrics import collect_reference_metrics
 from kinclaw.logger import logger
 
 IMPROVEMENT_SIGNALS = [
-    {"type": "test_coverage", "description": "Add unit tests for untested modules", "min_files": 5},
-    {"type": "error_handling", "description": "Improve error handling patterns", "min_files": 10},
-    {"type": "async_patterns", "description": "Optimize async/await usage", "min_files": 5},
-    {"type": "documentation", "description": "Add or improve docstrings", "min_files": 3},
-    {"type": "performance", "description": "Profile and optimize hot paths", "min_files": 10},
+    {
+        "type": "documentation",
+        "description": "Add or improve docstrings where reference claws are more documented",
+        "metric": "docstring_coverage_pct",
+        "minimum_delta": 10.0,
+    },
+    {
+        "type": "test_coverage",
+        "description": "Add tests to match stronger reference validation coverage",
+        "metric": "test_files",
+        "minimum_delta": 1.0,
+    },
+    {
+        "type": "async_patterns",
+        "description": "Adopt async patterns used in reference claws",
+        "metric": "async_functions",
+        "minimum_delta": 1.0,
+    },
 ]
-
-_TYPE_TO_CLAW = {
-    "test_coverage": "nanobot",
-    "error_handling": "openclaw",
-    "async_patterns": "zeroclaw",
-    "documentation": "nanobot",
-    "performance": "zeroclaw",
-}
 
 
 class ClawComparator:
@@ -28,21 +35,64 @@ class ClawComparator:
 
     async def find_gaps(self, self_analysis: dict) -> list[dict]:
         """Identify improvement gaps by comparing self with reference claws."""
+        if not self._ref.exists():
+            logger.info("ClawComparator: no reference path at {}", self._ref)
+            return []
+
         gaps: list[dict] = []
         metrics = self_analysis.get("metrics", {})
-        file_count = metrics.get("files", 0)
+        reference_metrics = await collect_reference_metrics(self._ref)
+        if not reference_metrics:
+            logger.info(
+                "ClawComparator: no reference metrics available in {}", self._ref
+            )
+            return []
 
         for signal in IMPROVEMENT_SIGNALS:
-            if file_count >= signal.get("min_files", 0):
-                best_claw = _TYPE_TO_CLAW.get(signal["type"], "nanobot")
-                gaps.append({
-                    "type": signal["type"],
-                    "description": signal["description"],
-                    "reference_claw": best_claw,
-                    "self_metrics": metrics,
-                })
+            best_gap = self._find_best_gap(
+                signal=signal, self_metrics=metrics, reference_metrics=reference_metrics
+            )
+            if best_gap:
+                gaps.append(best_gap)
 
-        # Return top 3 gaps to keep focused
-        selected = gaps[:3]
-        logger.info("ClawComparator: found {} gaps (returning top {})", len(gaps), len(selected))
+        selected = sorted(gaps, key=lambda gap: gap["evidence"]["delta"], reverse=True)[
+            :3
+        ]
+        logger.info(
+            "ClawComparator: found {} gaps (returning top {})", len(gaps), len(selected)
+        )
         return selected
+
+    def _find_best_gap(
+        self, signal: dict, self_metrics: dict, reference_metrics: dict[str, dict]
+    ) -> dict | None:
+        metric_name = signal["metric"]
+        best_gap: dict | None = None
+        self_value = float(self_metrics.get(metric_name, 0) or 0)
+
+        for claw_name, claw_metrics in reference_metrics.items():
+            reference_value = float(claw_metrics.get(metric_name, 0) or 0)
+            delta = round(reference_value - self_value, 1)
+            if delta < signal["minimum_delta"]:
+                continue
+
+            candidate = {
+                "type": signal["type"],
+                "description": signal["description"],
+                "reference_claw": claw_name,
+                "self_metrics": self_metrics,
+                "reference_metrics": claw_metrics,
+                "evidence": {
+                    "metric": metric_name,
+                    "self": self_value,
+                    "reference": reference_value,
+                    "delta": delta,
+                },
+            }
+            if (
+                best_gap is None
+                or candidate["evidence"]["delta"] > best_gap["evidence"]["delta"]
+            ):
+                best_gap = candidate
+
+        return best_gap

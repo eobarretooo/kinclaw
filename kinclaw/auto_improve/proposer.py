@@ -1,4 +1,5 @@
 """Generates concrete improvement proposals using Claude."""
+
 from __future__ import annotations
 
 import json
@@ -19,6 +20,8 @@ Gap type: {gap_type}
 Description: {description}
 Reference claw: {reference_claw}
 Current metrics: {metrics}
+reference_metrics: {reference_metrics}
+comparison_evidence: {comparison_evidence}
 
 Generate a focused improvement proposal. Respond with JSON:
 {{
@@ -30,9 +33,12 @@ Generate a focused improvement proposal. Respond with JSON:
   "estimated_hours": <float>,
   "code_changes": {{
     "kinclaw/path/to/file.py": "full file content here"
+  }},
+  "test_changes": {{
+    "tests/path/to/test_file.py": "full file content here"
   }}
 }}
-Keep code_changes small (1-2 files, focused changes).
+Keep code_changes and test_changes small (1-2 files each, focused changes).
 """
 
 
@@ -48,7 +54,9 @@ class ProposalGenerator:
                 if proposal:
                     proposals.append(proposal)
             except Exception as e:
-                logger.error("Failed to generate proposal for gap {}: {}", gap.get("type"), e)
+                logger.error(
+                    "Failed to generate proposal for gap {}: {}", gap.get("type"), e
+                )
         return proposals
 
     async def _generate_one(self, gap: dict) -> Proposal | None:
@@ -57,9 +65,13 @@ class ProposalGenerator:
             description=gap.get("description", ""),
             reference_claw=gap.get("reference_claw", ""),
             metrics=json.dumps(gap.get("self_metrics", {})),
+            reference_metrics=json.dumps(gap.get("reference_metrics", {})),
+            comparison_evidence=json.dumps(gap.get("evidence", {})),
         )
         try:
-            data = await self._provider.think_json(prompt, system=_PROPOSAL_SYSTEM)
+            data = await self._provider.think_json(
+                prompt=prompt, system=_PROPOSAL_SYSTEM
+            )
             return Proposal(
                 title=data.get("title", "Untitled improvement"),
                 description=data.get("description", ""),
@@ -68,6 +80,7 @@ class ProposalGenerator:
                 confidence_pct=int(data.get("confidence_pct", 0)),
                 estimated_hours=float(data.get("estimated_hours", 1.0)),
                 code_changes=data.get("code_changes", {}),
+                test_changes=data.get("test_changes", {}),
                 reference_claw=gap.get("reference_claw", ""),
             )
         except (json.JSONDecodeError, KeyError, ValueError) as e:
