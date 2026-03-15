@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -22,6 +22,8 @@ class ProposalRecord(Base):
     risk: Mapped[str] = mapped_column(String(16), default="low")
     confidence_pct: Mapped[int] = mapped_column(Integer, default=0)
     estimated_hours: Mapped[float] = mapped_column(Float, default=1.0)
+    code_changes: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    test_changes: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="pending")
     reference_claw: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

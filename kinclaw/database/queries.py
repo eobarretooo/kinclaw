@@ -38,6 +38,8 @@ class ProposalRepo:
             "risk": proposal.risk,
             "confidence_pct": proposal.confidence_pct,
             "estimated_hours": proposal.estimated_hours,
+            "code_changes": proposal.code_changes,
+            "test_changes": proposal.test_changes,
             "reference_claw": proposal.reference_claw,
             "status": status_value or proposal.status.value,
         }
@@ -82,6 +84,22 @@ class ProposalRepo:
         if rec:
             rec.status = status.value if isinstance(status, ProposalStatus) else status
             await self._s.commit()
+
+    def to_proposal(self, record: ProposalRecord) -> Proposal:
+        return Proposal(
+            id=record.id,
+            title=record.title,
+            description=record.description,
+            impact_pct=record.impact_pct,
+            risk=record.risk,
+            confidence_pct=record.confidence_pct,
+            estimated_hours=record.estimated_hours,
+            code_changes=record.code_changes or {},
+            test_changes=record.test_changes or {},
+            status=ProposalStatus(record.status),
+            created_at=record.created_at,
+            reference_claw=record.reference_claw,
+        )
 
 
 class AuditRepo:
@@ -130,3 +148,10 @@ class ApprovalRepo:
         await self._s.commit()
         await self._s.refresh(rec)
         return rec
+
+    async def delete_for_proposal(self, proposal_id: str) -> None:
+        rec = await self.get_by_proposal_id(proposal_id)
+        if rec is None:
+            return
+        await self._s.delete(rec)
+        await self._s.commit()

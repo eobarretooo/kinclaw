@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -99,18 +100,20 @@ class KinClawAgent:
         self._state.reset_daily_counters_if_new_day()
         self._state.error = None
 
-        if self._state.proposals_today >= self._settings.max_proposals_per_day:
-            logger.info(
-                "Daily proposal limit reached ({}), sleeping",
-                self._settings.max_proposals_per_day,
-            )
-            return
-
         logger.info("Starting improvement cycle")
         await self._audit.log("cycle_start")
         proposal: Proposal | None = None
 
         try:
+            await self._process_pending_proposals()
+
+            if self._state.proposals_today >= self._settings.max_proposals_per_day:
+                logger.info(
+                    "Daily proposal limit reached ({}), sleeping",
+                    self._settings.max_proposals_per_day,
+                )
+                return
+
             # 1. Analyze
             analysis = await self.analyze_self()
             logger.info(
@@ -141,78 +144,27 @@ class KinClawAgent:
             notify_text = self._format_proposal_notification(proposal)
             await self.broadcast(notify_text)
             await self._update_proposal_status(proposal.id, ProposalStatus.SENT)
+            self._approval_queue.register_proposal(proposal.id)
             logger.info(
                 "Proposal sent: {} (confidence: {}%)",
                 proposal.title,
                 proposal.confidence_pct,
             )
 
-            # 5. Wait for approval
-            self._approval_queue.register_proposal(proposal.id)
-            approval = await self._approval_queue.get_for(proposal.id, timeout=3600)
-
-            if approval is None:
-                await self.broadcast(
-                    f"⏰ Proposal timed out with no response: {proposal.title}"
-                )
-                await self._update_proposal_status(
-                    proposal.id, ProposalStatus.TIMED_OUT
-                )
-                logger.info("Proposal {} timed out", proposal.id)
-                return
-
-            # 6. Execute if approved
-            await self._update_proposal_status(
-                proposal.id,
-                ProposalStatus.APPROVED
-                if approval.approved
-                else ProposalStatus.REJECTED,
-            )
-            if approval.approved:
-                self._state.phase = AgentPhase.EXECUTING
-                self._publish_state()
-                await self._update_proposal_status(
-                    proposal.id, ProposalStatus.EXECUTING
-                )
-            else:
-                self._state.phase = AgentPhase.REPORTING
-                self._publish_state()
-            result = await self._executor.execute(
-                proposal, approval, notify_fn=self.broadcast
-            )
-
-            # 7. Report
-            self._state.phase = AgentPhase.REPORTING
-            self._publish_state()
-            if result.get("success"):
-                await self._audit.log("cycle_success", detail=proposal.title)
-                await self._update_proposal_status(proposal.id, ProposalStatus.DONE)
-            else:
-                await self._audit.log(
-                    "cycle_failed",
-                    detail=str(result.get("reason")),
-                    result="failed",
-                )
-                await self._update_proposal_status(
-                    proposal.id,
-                    ProposalStatus.REJECTED
-                    if result.get("reason") == "rejected"
-                    else ProposalStatus.PR_FAILED
-                    if result.get("reason") == "pr_failed"
-                    else ProposalStatus.FAILED,
-                )
+            approval = await self._approval_queue.get_for(proposal.id, timeout=0)
+            if approval is not None:
+                await self._process_approval_decision(proposal, approval)
         except Exception as exc:
             self._state.error = str(exc)
             if proposal is not None:
                 await self._audit.log("cycle_failed", detail=str(exc), result="failed")
                 await self._update_proposal_status(proposal.id, ProposalStatus.FAILED)
+                await self._approval_queue.forget(proposal.id)
             raise
         finally:
-            if proposal is not None:
-                self._approval_queue.clear(proposal.id)
-                self._state.current_proposal_id = None
-                self._state.phase = AgentPhase.IDLE
-                self._publish_state()
+            self._state.current_proposal_id = None
+            self._state.phase = AgentPhase.IDLE
+            self._publish_state()
 
     async def run_forever(self) -> None:
         """Perpetual loop: cycle, sleep, repeat."""
@@ -279,6 +231,86 @@ class KinClawAgent:
         )
         if approval:
             await self._approval_queue.submit(approval)
+
+    async def _process_pending_proposals(self) -> None:
+        async with get_session() as session:
+            repo = ProposalRepo(session)
+            pending_records = await repo.list_by_statuses(
+                [ProposalStatus.PENDING, ProposalStatus.SENT]
+            )
+
+        for record in reversed(pending_records):
+            proposal = await self._load_proposal(record.id)
+            if proposal is None:
+                continue
+
+            if self._is_timed_out(proposal.created_at):
+                await self.broadcast(
+                    f"⏰ Proposal timed out with no response: {proposal.title}"
+                )
+                await self._update_proposal_status(
+                    proposal.id, ProposalStatus.TIMED_OUT
+                )
+                await self._approval_queue.forget(proposal.id)
+                logger.info("Proposal {} timed out", proposal.id)
+                continue
+
+            approval = await self._approval_queue.peek_for(proposal.id)
+            if approval is None:
+                continue
+
+            await self._process_approval_decision(proposal, approval)
+
+    async def _process_approval_decision(
+        self, proposal: Proposal, approval: Approval
+    ) -> None:
+        await self._update_proposal_status(
+            proposal.id,
+            ProposalStatus.APPROVED if approval.approved else ProposalStatus.REJECTED,
+        )
+        if approval.approved:
+            self._state.phase = AgentPhase.EXECUTING
+            self._publish_state()
+            await self._update_proposal_status(proposal.id, ProposalStatus.EXECUTING)
+        else:
+            self._state.phase = AgentPhase.REPORTING
+            self._publish_state()
+
+        result = await self._executor.execute(
+            proposal, approval, notify_fn=self.broadcast
+        )
+
+        self._state.phase = AgentPhase.REPORTING
+        self._publish_state()
+        if result.get("success"):
+            await self._audit.log("cycle_success", detail=proposal.title)
+            await self._update_proposal_status(proposal.id, ProposalStatus.DONE)
+        else:
+            await self._audit.log(
+                "cycle_failed",
+                detail=str(result.get("reason")),
+                result="failed",
+            )
+            await self._update_proposal_status(
+                proposal.id,
+                ProposalStatus.REJECTED
+                if result.get("reason") == "rejected"
+                else ProposalStatus.PR_FAILED
+                if result.get("reason") == "pr_failed"
+                else ProposalStatus.FAILED,
+            )
+        await self._approval_queue.forget(proposal.id)
+
+    def _is_timed_out(self, created_at: datetime) -> bool:
+        return datetime.utcnow() - created_at >= timedelta(hours=1)
+
+    async def _load_proposal(self, proposal_id: str) -> Proposal | None:
+        async with get_session() as session:
+            repo = ProposalRepo(session)
+            record = await repo.get(proposal_id)
+            if record is None:
+                return None
+            return repo.to_proposal(record)
 
     def _format_proposal_notification(self, proposal: Proposal) -> str:
         return (

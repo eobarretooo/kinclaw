@@ -1,4 +1,6 @@
+import asyncio
 import pytest
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 from kinclaw.core.state import AgentState, AgentPhase
 from kinclaw.core.agent import KinClawAgent
@@ -7,7 +9,7 @@ from kinclaw.channels.router import ChannelRouter
 from kinclaw.config import Settings
 from kinclaw.core.types import Approval, Proposal, ProposalStatus
 from kinclaw.database.connection import get_session, init_db
-from kinclaw.database.queries import ProposalRepo
+from kinclaw.database.queries import ApprovalRepo, ProposalRepo
 
 
 def test_agent_state_initial():
@@ -227,7 +229,7 @@ async def test_run_improvement_cycle_marks_rejected_proposal_in_database():
 
 
 @pytest.mark.asyncio
-async def test_run_improvement_cycle_marks_timed_out_proposal_as_timed_out():
+async def test_run_improvement_cycle_leaves_unanswered_proposal_pending_for_later_cycle():
     await init_db("sqlite+aiosqlite:///:memory:")
 
     settings = Settings(
@@ -263,7 +265,7 @@ async def test_run_improvement_cycle_marks_timed_out_proposal_as_timed_out():
         record = await repo.get(proposal.id)
 
     assert record is not None
-    assert record.status == ProposalStatus.TIMED_OUT.value
+    assert record.status == ProposalStatus.SENT.value
 
 
 @pytest.mark.asyncio
@@ -366,3 +368,179 @@ async def test_run_improvement_cycle_cleans_up_after_execution_exception():
     assert agent.state.current_proposal_id is None
     assert agent.state.phase == AgentPhase.IDLE
     assert agent.state.error == "boom"
+
+
+@pytest.mark.asyncio
+async def test_run_improvement_cycle_emits_actionable_proposal_without_waiting_for_approval():
+    await init_db("sqlite+aiosqlite:///:memory:")
+
+    settings = Settings(
+        anthropic_api_key="test",
+        github_token="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+    agent = KinClawAgent(
+        settings=settings, provider=AsyncMock(), bus=bus, router=router
+    )
+
+    proposal = Proposal(
+        id="proposal-awaiting",
+        title="Await approval asynchronously",
+        description="Do not block the whole cycle while waiting.",
+        confidence_pct=88,
+    )
+
+    agent._analyzer.analyze = AsyncMock(
+        return_value={"metrics": {"files": 1, "lines": 1}}
+    )
+    agent._comparator.find_gaps = AsyncMock(return_value=[{"type": "gap"}])
+    agent._proposer.generate = AsyncMock(return_value=[proposal])
+    agent.broadcast = AsyncMock()
+
+    await asyncio.wait_for(agent.run_improvement_cycle(), timeout=0.05)
+
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        record = await repo.get(proposal.id)
+
+    assert record is not None
+    assert record.status == ProposalStatus.SENT.value
+    assert agent.state.current_proposal_id is None
+    assert agent.state.phase == AgentPhase.IDLE
+
+
+@pytest.mark.asyncio
+async def test_run_improvement_cycle_supports_multiple_pending_proposals_and_cleans_up_decisions():
+    await init_db("sqlite+aiosqlite:///:memory:")
+
+    settings = Settings(
+        anthropic_api_key="test",
+        github_token="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+    agent = KinClawAgent(
+        settings=settings, provider=AsyncMock(), bus=bus, router=router
+    )
+
+    proposal_one = Proposal(
+        id="proposal-one",
+        title="First pending proposal",
+        description="Waits for explicit approval.",
+        confidence_pct=80,
+    )
+    proposal_two = Proposal(
+        id="proposal-two",
+        title="Second pending proposal",
+        description="Can coexist with another pending proposal.",
+        confidence_pct=81,
+    )
+
+    agent._analyzer.analyze = AsyncMock(
+        return_value={"metrics": {"files": 2, "lines": 3}}
+    )
+    agent._comparator.find_gaps = AsyncMock(return_value=[{"type": "gap"}])
+    agent._proposer.generate = AsyncMock(
+        side_effect=[[proposal_one], [proposal_two], []]
+    )
+    agent.broadcast = AsyncMock()
+
+    async def execute_side_effect(proposal, approval, notify_fn=None):
+        if approval.approved:
+            return {"success": True}
+        return {"success": False, "reason": "rejected"}
+
+    agent._executor.execute = AsyncMock(side_effect=execute_side_effect)
+
+    await agent.run_improvement_cycle()
+    await agent.run_improvement_cycle()
+
+    from kinclaw.core.types import InboundMessage
+
+    await agent._handle_inbound(
+        InboundMessage(
+            channel="telegram",
+            sender_id="123",
+            chat_id="123",
+            content="nega proposal-one",
+        )
+    )
+    await agent._handle_inbound(
+        InboundMessage(
+            channel="telegram",
+            sender_id="123",
+            chat_id="123",
+            content="aprova proposal-two",
+        )
+    )
+
+    await agent.run_improvement_cycle()
+
+    async with get_session() as session:
+        proposal_repo = ProposalRepo(session)
+        approval_repo = ApprovalRepo(session)
+        first_record = await proposal_repo.get("proposal-one")
+        second_record = await proposal_repo.get("proposal-two")
+        first_approval = await approval_repo.get_by_proposal_id("proposal-one")
+        second_approval = await approval_repo.get_by_proposal_id("proposal-two")
+
+    assert first_record is not None
+    assert first_record.status == ProposalStatus.REJECTED.value
+    assert second_record is not None
+    assert second_record.status == ProposalStatus.DONE.value
+    assert agent._executor.execute.await_count == 2
+    assert first_approval is None
+    assert second_approval is None
+    assert agent._approval_queue.pending_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_run_improvement_cycle_times_out_stale_pending_proposal_and_cleans_up():
+    await init_db("sqlite+aiosqlite:///:memory:")
+
+    settings = Settings(
+        anthropic_api_key="test",
+        github_token="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+    agent = KinClawAgent(
+        settings=settings, provider=AsyncMock(), bus=bus, router=router
+    )
+    agent.broadcast = AsyncMock()
+    agent._analyzer.analyze = AsyncMock(
+        return_value={"metrics": {"files": 2, "lines": 3}}
+    )
+    agent._comparator.find_gaps = AsyncMock(return_value=[])
+
+    stale_proposal = Proposal(
+        id="proposal-stale",
+        title="Stale pending proposal",
+        description="Should time out in a later cycle.",
+        confidence_pct=65,
+    )
+    await agent._save_proposal(stale_proposal, status=ProposalStatus.SENT)
+
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        record = await repo.get("proposal-stale")
+        assert record is not None
+        record.created_at = datetime.utcnow() - timedelta(hours=2)
+        await session.commit()
+
+    await agent.run_improvement_cycle()
+
+    async with get_session() as session:
+        proposal_repo = ProposalRepo(session)
+        approval_repo = ApprovalRepo(session)
+        record = await proposal_repo.get("proposal-stale")
+        approval = await approval_repo.get_by_proposal_id("proposal-stale")
+
+    assert record is not None
+    assert record.status == ProposalStatus.TIMED_OUT.value
+    assert approval is None
+    assert agent._approval_queue.pending_count() == 0

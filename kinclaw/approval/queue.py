@@ -37,6 +37,8 @@ class ApprovalQueue:
         # Return immediately if approval already submitted before we started waiting
         if proposal_id in self._approvals:
             return self._approvals[proposal_id]
+        if timeout <= 0:
+            return await self.peek_for(proposal_id)
         if self._persist_decisions:
             persisted_approval = await self._load_persisted_approval(proposal_id)
             if persisted_approval is not None:
@@ -54,6 +56,24 @@ class ApprovalQueue:
     def clear(self, proposal_id: str) -> None:
         self._events.pop(proposal_id, None)
         self._approvals.pop(proposal_id, None)
+
+    async def peek_for(self, proposal_id: str) -> Approval | None:
+        if proposal_id in self._approvals:
+            return self._approvals[proposal_id]
+        if not self._persist_decisions:
+            return None
+        persisted_approval = await self._load_persisted_approval(proposal_id)
+        if persisted_approval is not None:
+            self._approvals[proposal_id] = persisted_approval
+        return persisted_approval
+
+    async def forget(self, proposal_id: str) -> None:
+        self.clear(proposal_id)
+        if not self._persist_decisions:
+            return
+        async with get_session() as session:
+            repo = ApprovalRepo(session)
+            await repo.delete_for_proposal(proposal_id)
 
     def pending_count(self) -> int:
         return sum(1 for pid, ev in self._events.items() if not ev.is_set())
