@@ -33,9 +33,11 @@ def _serialize_proposal(record) -> dict:
     }
 
 
-def _derive_runtime_status(state: dict, pending_count: int) -> tuple[str, str]:
+def _derive_runtime_status(
+    state: dict, pending_count: int, sent_count: int
+) -> tuple[str, str]:
     phase = state.get("phase") or "idle"
-    if pending_count > 0 and phase == "idle":
+    if (pending_count + sent_count) > 0 and phase == "idle":
         return "awaiting_approval", "awaiting_approval"
     if phase == "awaiting_approval":
         return "awaiting_approval", phase
@@ -65,7 +67,7 @@ async def _load_runtime_snapshot() -> dict:
 
     pending_count = sum(1 for proposal in proposals if proposal.status == "pending")
     sent_count = sum(1 for proposal in proposals if proposal.status == "sent")
-    status_value, phase_value = _derive_runtime_status(state, pending_count)
+    status_value, phase_value = _derive_runtime_status(state, pending_count, sent_count)
 
     return {
         "status": status_value,

@@ -118,6 +118,41 @@ async def test_status_endpoint_reports_awaiting_approval_when_pending_proposals_
     assert data["proposal_summary"] == {"pending": 1, "sent": 0, "active_total": 1}
 
 
+@pytest.mark.asyncio
+async def test_status_endpoint_reports_awaiting_approval_when_sent_proposals_exist(
+    client,
+):
+    await init_db("sqlite+aiosqlite:///:memory:")
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        await repo.create(
+            id="sent-awaiting-approval-proposal",
+            title="Already notified owner",
+            description="waiting for answer",
+            impact_pct=14,
+            risk="medium",
+            confidence_pct=84,
+            status="sent",
+        )
+
+    set_agent_state(
+        {
+            "is_running": False,
+            "phase": "idle",
+            "proposals_today": 1,
+            "last_analysis_metrics": {"files": 8, "lines": 122},
+        }
+    )
+
+    resp = client.get("/api/status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "awaiting_approval"
+    assert data["phase"] == "awaiting_approval"
+    assert data["proposal_summary"] == {"pending": 0, "sent": 1, "active_total": 1}
+
+
 def test_status_stream_endpoint_streams_multiple_sse_snapshots(client):
     import asyncio
 
