@@ -1,4 +1,5 @@
 """Global configuration via pydantic-settings (reads from .env)."""
+
 from __future__ import annotations
 
 import functools
@@ -7,7 +8,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     # AI — provider: "claude" | "gemini"
     provider: str = "claude"
@@ -51,7 +54,7 @@ class Settings(BaseSettings):
 
     # Channels — stored as comma-separated string to avoid pydantic-settings
     # trying json.loads() on plain values like "telegram,discord"
-    active_channels: str = "telegram"
+    active_channels: str = ""
 
     @property
     def active_channels_list(self) -> list[str]:
@@ -61,13 +64,17 @@ class Settings(BaseSettings):
     def telegram_allowed_id_list(self) -> list[int]:
         if not self.telegram_allowed_ids:
             return []
-        return [int(x.strip()) for x in self.telegram_allowed_ids.split(",") if x.strip()]
+        return [
+            int(x.strip()) for x in self.telegram_allowed_ids.split(",") if x.strip()
+        ]
 
     @property
     def discord_allowed_id_list(self) -> list[int]:
         if not self.discord_allowed_ids:
             return []
-        return [int(x.strip()) for x in self.discord_allowed_ids.split(",") if x.strip()]
+        return [
+            int(x.strip()) for x in self.discord_allowed_ids.split(",") if x.strip()
+        ]
 
     @property
     def telegram_default_chat_id_int(self) -> int | None:

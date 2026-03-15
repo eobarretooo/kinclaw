@@ -5,6 +5,8 @@ from kinclaw.config import Settings, get_settings
 def test_settings_defaults():
     s = Settings()
     assert s.claude_model == "claude-sonnet-4-6"
+    assert s.active_channels == ""
+    assert s.active_channels_list == []
     assert s.sleep_between_analyses == 3600
     assert s.max_proposals_per_day == 3
     assert s.monthly_budget_usd == 100

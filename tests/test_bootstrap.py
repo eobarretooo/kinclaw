@@ -29,6 +29,7 @@ def test_docker_compose_healthcheck_uses_python_not_curl():
 def test_ci_workflow_installs_dependencies_and_runs_pytest():
     workflow_path = ROOT / ".github" / "workflows" / "ci.yml"
     workflow = workflow_path.read_text()
+    dockerfile = (ROOT / "Dockerfile").read_text()
 
     assert "actions/checkout" in workflow
     assert "actions/setup-python" in workflow
@@ -36,13 +37,19 @@ def test_ci_workflow_installs_dependencies_and_runs_pytest():
     assert "python -m pip install --upgrade pip" in workflow
     assert "python -m pip install -r requirements.txt" in workflow
     assert "python -m pytest" in workflow
+    docker_python = dockerfile.splitlines()[0].split(":", 1)[1].split("-", 1)[0]
+    assert f'python-version: "{docker_python}"' in workflow
 
 
 def test_env_example_defaults_to_no_active_chat_channels():
     env_example = (ROOT / ".env.example").read_text()
+    env_lines = dict(
+        line.split("=", 1)
+        for line in env_example.splitlines()
+        if line and not line.startswith("#") and "=" in line
+    )
 
-    assert "ACTIVE_CHANNELS=" in env_example
-    assert "ACTIVE_CHANNELS=telegram" not in env_example
+    assert env_lines["ACTIVE_CHANNELS"] == ""
     assert "Leave empty for local bootstrap without chat integrations" in env_example
 
 
