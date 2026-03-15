@@ -14,8 +14,7 @@ class SelfAnalyzer:
 
     async def analyze(self) -> dict:
         """Return metrics dict for the kinclaw/ package."""
-        pkg = self._base / "kinclaw"
-        py_files = list(pkg.rglob("*.py")) if pkg.exists() else []
+        py_files = self._collect_code_files()
         test_files = self._collect_test_files()
 
         total_lines = total_funcs = total_classes = 0
@@ -59,6 +58,10 @@ class SelfAnalyzer:
             if documentable_nodes
             else 0.0
         )
+        test_file_ratio = round(len(test_files) / len(py_files), 3) if py_files else 0.0
+        async_function_ratio = (
+            round(async_functions / total_funcs, 3) if total_funcs else 0.0
+        )
 
         logger.info(
             "SelfAnalyzer: {} files, {} lines, {} functions",
@@ -73,8 +76,10 @@ class SelfAnalyzer:
                 "functions": total_funcs,
                 "classes": total_classes,
                 "async_functions": async_functions,
+                "async_function_ratio": async_function_ratio,
                 "docstring_coverage_pct": docstring_coverage_pct,
                 "test_files": len(test_files),
+                "test_file_ratio": test_file_ratio,
                 "non_test_files": len(
                     [path for path in py_files if not self._is_test_file(path)]
                 ),
@@ -83,14 +88,31 @@ class SelfAnalyzer:
             }
         }
 
+    def _collect_code_files(self) -> list[Path]:
+        preferred_pkg = self._base / "kinclaw"
+        if preferred_pkg.exists():
+            return list(preferred_pkg.rglob("*.py"))
+
+        return [
+            path
+            for path in self._base.rglob("*.py")
+            if not self._is_test_file(path) and not self._is_ignored_path(path)
+        ]
+
     def _collect_test_files(self) -> list[Path]:
         tests_dir = self._base / "tests"
         test_files = list(tests_dir.rglob("test_*.py")) if tests_dir.exists() else []
-        test_files.extend(
-            path
-            for path in (self._base / "kinclaw").rglob("*.py")
-            if self._is_test_file(path)
-        )
+        pkg_dir = self._base / "kinclaw"
+        if pkg_dir.exists():
+            test_files.extend(
+                path for path in pkg_dir.rglob("*.py") if self._is_test_file(path)
+            )
+        else:
+            test_files.extend(
+                path
+                for path in self._base.rglob("*.py")
+                if self._is_test_file(path) and not self._is_ignored_path(path)
+            )
         return test_files
 
     @staticmethod
@@ -98,3 +120,8 @@ class SelfAnalyzer:
         return any(part == "tests" for part in path.parts) or path.name.startswith(
             "test_"
         )
+
+    @staticmethod
+    def _is_ignored_path(path: Path) -> bool:
+        ignored_parts = {".venv", ".git", "__pycache__", ".pytest_cache"}
+        return any(part in ignored_parts or part.startswith(".") for part in path.parts)

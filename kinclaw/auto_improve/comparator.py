@@ -17,14 +17,14 @@ IMPROVEMENT_SIGNALS = [
     {
         "type": "test_coverage",
         "description": "Add tests to match stronger reference validation coverage",
-        "metric": "test_files",
-        "minimum_delta": 1.0,
+        "metric": "test_file_ratio",
+        "minimum_delta": 0.15,
     },
     {
         "type": "async_patterns",
         "description": "Adopt async patterns used in reference claws",
-        "metric": "async_functions",
-        "minimum_delta": 1.0,
+        "metric": "async_function_ratio",
+        "minimum_delta": 0.15,
     },
 ]
 

@@ -59,7 +59,7 @@ async def test_self_analyzer_tracks_parse_errors(tmp_path):
 @pytest.mark.asyncio
 async def test_comparator_uses_real_reference_metrics(tmp_path):
     ref_root = tmp_path / "ref"
-    nanobot = ref_root / "nanobot" / "kinclaw"
+    nanobot = ref_root / "nanobot" / "src"
     nanobot.mkdir(parents=True)
     (nanobot / "doc_module.py").write_text(
         '"""Reference docs."""\n\n'
@@ -107,6 +107,75 @@ async def test_comparator_handles_missing_reference_path_gracefully(tmp_path):
     comparator = ClawComparator(ref_path=tmp_path / "missing-ref")
     gaps = await comparator.find_gaps({"metrics": {"files": 1, "lines": 10}})
     assert gaps == []
+
+
+@pytest.mark.asyncio
+async def test_comparator_ignores_unusable_reference_directories(tmp_path):
+    ref_root = tmp_path / "ref"
+    (ref_root / "emptyclaw").mkdir(parents=True)
+
+    comparator = ClawComparator(ref_path=ref_root)
+    gaps = await comparator.find_gaps({"metrics": {"files": 1, "lines": 10}})
+
+    assert gaps == []
+
+
+@pytest.mark.asyncio
+async def test_comparator_normalizes_test_coverage_comparisons(tmp_path):
+    ref_root = tmp_path / "ref"
+
+    large_ref = ref_root / "largeclaw" / "src"
+    large_ref.mkdir(parents=True)
+    for index in range(10):
+        (large_ref / f"module_{index}.py").write_text(
+            f"def func_{index}():\n    return {index}\n",
+            encoding="utf-8",
+        )
+    large_tests = ref_root / "largeclaw" / "tests"
+    large_tests.mkdir(parents=True)
+    for index in range(3):
+        (large_tests / f"test_module_{index}.py").write_text(
+            "def test_ok():\n    assert True\n",
+            encoding="utf-8",
+        )
+
+    small_ref = ref_root / "smallclaw" / "pkg"
+    small_ref.mkdir(parents=True)
+    for index in range(2):
+        (small_ref / f"module_{index}.py").write_text(
+            f"def func_{index}():\n    return {index}\n",
+            encoding="utf-8",
+        )
+    small_tests = ref_root / "smallclaw" / "tests"
+    small_tests.mkdir(parents=True)
+    for index in range(2):
+        (small_tests / f"test_module_{index}.py").write_text(
+            "def test_ok():\n    assert True\n",
+            encoding="utf-8",
+        )
+
+    comparator = ClawComparator(ref_path=ref_root)
+    gaps = await comparator.find_gaps(
+        {
+            "metrics": {
+                "files": 2,
+                "lines": 6,
+                "functions": 2,
+                "classes": 0,
+                "parse_errors": 0,
+                "docstring_coverage_pct": 0.0,
+                "async_functions": 0,
+                "test_files": 0,
+                "non_test_files": 2,
+                "largest_files": [],
+            }
+        }
+    )
+
+    coverage_gap = next(gap for gap in gaps if gap["type"] == "test_coverage")
+    assert coverage_gap["reference_claw"] == "smallclaw"
+    assert coverage_gap["evidence"]["metric"] == "test_file_ratio"
+    assert coverage_gap["evidence"]["reference"] > coverage_gap["evidence"]["self"]
 
 
 @pytest.mark.asyncio

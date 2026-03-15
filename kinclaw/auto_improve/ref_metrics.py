@@ -14,8 +14,9 @@ async def collect_reference_metrics(ref_path: Path) -> dict[str, dict]:
 
     metrics_by_claw: dict[str, dict] = {}
     for claw_dir in sorted(path for path in ref_path.iterdir() if path.is_dir()):
-        if not (claw_dir / "kinclaw").exists():
-            continue
         analysis = await SelfAnalyzer(base_path=claw_dir).analyze()
-        metrics_by_claw[claw_dir.name] = analysis.get("metrics", {})
+        metrics = analysis.get("metrics", {})
+        if metrics.get("files", 0) <= 0:
+            continue
+        metrics_by_claw[claw_dir.name] = metrics
     return metrics_by_claw

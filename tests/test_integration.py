@@ -136,7 +136,7 @@ async def test_analyzer_and_comparator_integration(tmp_path):
         "def helper():\n    return 1\n",
         encoding="utf-8",
     )
-    ref_pkg = tmp_path / "ref" / "nanobot" / "kinclaw"
+    ref_pkg = tmp_path / "ref" / "nanobot" / "src"
     ref_pkg.mkdir(parents=True)
     (ref_pkg / "service.py").write_text(
         '"""Reference service."""\n\n'
