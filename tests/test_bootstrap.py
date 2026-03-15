@@ -12,6 +12,8 @@ def test_readme_quick_start_uses_local_virtualenv_bootstrap():
     assert "python -m pip install --upgrade pip" in readme
     assert "python -m pip install -r requirements.txt" in readme
     assert "python -m pytest" in readme
+    assert "no chat channel configured by default" in readme
+    assert "ANTHROPIC_API_KEY" in readme
 
 
 def test_docker_compose_healthcheck_uses_python_not_curl():
@@ -34,3 +36,19 @@ def test_ci_workflow_installs_dependencies_and_runs_pytest():
     assert "python -m pip install --upgrade pip" in workflow
     assert "python -m pip install -r requirements.txt" in workflow
     assert "python -m pytest" in workflow
+
+
+def test_env_example_defaults_to_no_active_chat_channels():
+    env_example = (ROOT / ".env.example").read_text()
+
+    assert "ACTIVE_CHANNELS=" in env_example
+    assert "ACTIVE_CHANNELS=telegram" not in env_example
+    assert "Leave empty for local bootstrap without chat integrations" in env_example
+
+
+def test_dockerfile_keeps_existing_python_runtime_and_reproducible_pip_install():
+    dockerfile = (ROOT / "Dockerfile").read_text()
+
+    assert "FROM python:3.11-slim" in dockerfile
+    assert "python -m pip install --upgrade pip" in dockerfile
+    assert "python -m pip install --no-cache-dir -r requirements.txt" in dockerfile

@@ -31,6 +31,7 @@ python -m pip install -r requirements.txt
 # Configure
 cp .env.example .env
 # Edit .env with your tokens (at minimum ANTHROPIC_API_KEY)
+# Quick start works with no chat channel configured by default
 
 # Run the test suite
 python -m pytest
@@ -61,6 +62,7 @@ Reply to KinClaw in any channel with:
 ```bash
 cp .env.example .env
 # Edit .env with the same values used locally
+# ACTIVE_CHANNELS can stay empty unless you are enabling Telegram or Discord
 docker-compose up -d
 ```
 
