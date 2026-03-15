@@ -1,4 +1,5 @@
 """Core data-transfer types for KinClaw."""
+
 from __future__ import annotations
 
 import uuid
@@ -35,11 +36,13 @@ class OutboundMessage(BaseModel):
 class ProposalStatus(str, Enum):
     PENDING = "pending"
     SENT = "sent"
+    TIMED_OUT = "timed_out"
     APPROVED = "approved"
     REJECTED = "rejected"
     EXECUTING = "executing"
     DONE = "done"
     FAILED = "failed"
+    PR_FAILED = "pr_failed"
 
 
 class Proposal(BaseModel):

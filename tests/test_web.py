@@ -86,6 +86,36 @@ async def test_proposals_endpoint_default_list_includes_sent_proposals(client):
     assert data[0]["status"] == "sent"
 
 
+@pytest.mark.asyncio
+async def test_proposals_endpoint_default_list_excludes_non_actionable_statuses(client):
+    await init_db("sqlite+aiosqlite:///:memory:")
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        await repo.create(
+            id="timed-out-proposal",
+            title="Timed out",
+            description="no response",
+            impact_pct=10,
+            risk="low",
+            confidence_pct=50,
+            status="timed_out",
+        )
+        await repo.create(
+            id="pr-failed-proposal",
+            title="PR failed",
+            description="needs attention",
+            impact_pct=10,
+            risk="low",
+            confidence_pct=50,
+            status="pr_failed",
+        )
+
+    resp = client.get("/api/proposals/")
+
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
 def test_dashboard_returns_html(client):
     resp = client.get("/")
     assert resp.status_code == 200

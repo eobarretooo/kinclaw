@@ -155,6 +155,9 @@ class KinClawAgent:
                 await self.broadcast(
                     f"⏰ Proposal timed out with no response: {proposal.title}"
                 )
+                await self._update_proposal_status(
+                    proposal.id, ProposalStatus.TIMED_OUT
+                )
                 logger.info("Proposal {} timed out", proposal.id)
                 return
 
@@ -194,6 +197,8 @@ class KinClawAgent:
                     proposal.id,
                     ProposalStatus.REJECTED
                     if result.get("reason") == "rejected"
+                    else ProposalStatus.PR_FAILED
+                    if result.get("reason") == "pr_failed"
                     else ProposalStatus.FAILED,
                 )
         except Exception as exc:

@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 from kinclaw.core.state import AgentState, AgentPhase
 from kinclaw.core.agent import KinClawAgent
 from kinclaw.core.bus import MessageBus
@@ -207,7 +207,7 @@ async def test_run_improvement_cycle_marks_rejected_proposal_in_database():
 
 
 @pytest.mark.asyncio
-async def test_run_improvement_cycle_marks_timed_out_proposal_as_sent():
+async def test_run_improvement_cycle_marks_timed_out_proposal_as_timed_out():
     await init_db("sqlite+aiosqlite:///:memory:")
 
     settings = Settings(
@@ -243,7 +243,57 @@ async def test_run_improvement_cycle_marks_timed_out_proposal_as_sent():
         record = await repo.get(proposal.id)
 
     assert record is not None
-    assert record.status == "sent"
+    assert record.status == ProposalStatus.TIMED_OUT.value
+
+
+@pytest.mark.asyncio
+async def test_run_improvement_cycle_marks_pr_failure_with_distinct_status():
+    await init_db("sqlite+aiosqlite:///:memory:")
+
+    settings = Settings(
+        anthropic_api_key="test",
+        github_token="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+    agent = KinClawAgent(
+        settings=settings, provider=AsyncMock(), bus=bus, router=router
+    )
+
+    proposal = Proposal(
+        id="proposal-pr-failed",
+        title="PR creation fails",
+        description="Commit/push works but PR creation does not.",
+        confidence_pct=85,
+    )
+
+    agent._analyzer.analyze = AsyncMock(
+        return_value={"metrics": {"files": 3, "lines": 14}}
+    )
+    agent._comparator.find_gaps = AsyncMock(return_value=[{"type": "gap"}])
+    agent._proposer.generate = AsyncMock(return_value=[proposal])
+    agent.broadcast = AsyncMock()
+    agent._approval_queue.get_for = AsyncMock(
+        return_value=Approval(
+            proposal_id=proposal.id,
+            approved=True,
+            channel="telegram",
+            raw_message="aprova",
+        )
+    )
+    agent._executor.execute = AsyncMock(
+        return_value={"success": False, "reason": "pr_failed", "stderr": "github down"}
+    )
+
+    await agent.run_improvement_cycle()
+
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        record = await repo.get(proposal.id)
+
+    assert record is not None
+    assert record.status == ProposalStatus.PR_FAILED.value
 
 
 @pytest.mark.asyncio

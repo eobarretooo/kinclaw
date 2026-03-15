@@ -222,11 +222,21 @@ class ApprovalExecutor:
                 await notify_fn(
                     f"⚠️ Committed but PR creation failed: {pr_result.get('error')}"
                 )
-            return {"success": True, "pr_number": None, "note": "pr_failed"}
+            return {
+                "success": False,
+                "reason": "pr_failed",
+                "stderr": pr_result.get("error", ""),
+            }
         finally:
-            await git_skill.execute(
+            cleanup_result = await git_skill.execute(
                 action="cleanup_workspace",
                 cwd=str(workspace_path),
                 branch=branch_name,
                 delete_branch=delete_branch,
             )
+            if not cleanup_result.get("success", True):
+                await self._audit.log(
+                    "workspace_cleanup_failed",
+                    detail=cleanup_result.get("stderr", ""),
+                    result="failed",
+                )

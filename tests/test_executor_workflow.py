@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -22,7 +23,7 @@ class FakeFileManagerSkill:
 
     async def execute(self, **kwargs) -> dict:
         self.calls.append(kwargs)
-        path = kwargs.get("path")
+        path = str(kwargs.get("path", ""))
         return self.responses.get(path, {"success": True, "path": path})
 
 
@@ -185,6 +186,42 @@ async def test_executor_blocks_commit_push_and_pr_when_validation_fails(tmp_path
         workspace_path / "src/feature.py",
         workspace_path / "tests/test_feature.py",
     ]
+
+
+@pytest.mark.asyncio
+async def test_executor_returns_distinct_result_when_pr_creation_fails(tmp_path):
+    workspace_path = tmp_path / "proposal-worktree"
+    git_skill = FakeGitManagerSkill(
+        workspace_path=workspace_path,
+        branch_name="proposal/pr-failure",
+    )
+    file_skill = FakeFileManagerSkill()
+    github_skill = FakeGitHubAPISkill()
+    github_skill.execute = AsyncMock(
+        return_value={"success": False, "error": "github down"}
+    )
+    validator = FakeValidator()
+
+    audit = AuditLogger()
+    audit.log = AsyncMock()
+
+    executor = ApprovalExecutor(
+        safety=SafetyChecker(),
+        limiter=RateLimiter(),
+        audit=audit,
+        file_skill_factory=lambda: file_skill,
+        git_skill_factory=lambda: git_skill,
+        github_skill_factory=lambda: github_skill,
+        validator_factory=lambda: validator,
+        settings_factory=lambda: Settings(
+            github_token="token", github_repo="owner/repo"
+        ),
+    )
+
+    proposal = _proposal()
+    result = await executor.execute(proposal, _approval_for(proposal))
+
+    assert result == {"success": False, "reason": "pr_failed", "stderr": "github down"}
 
 
 @pytest.mark.asyncio
@@ -420,9 +457,43 @@ async def test_validator_runs_pytest_and_ruff_when_available(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_validator_fails_closed_when_pytest_tool_is_missing(tmp_path):
+async def test_validator_uses_current_python_when_local_pytest_binary_missing(
+    tmp_path, monkeypatch
+):
     tool_root = tmp_path / "tool-root"
     (tool_root / ".venv/bin").mkdir(parents=True)
+
+    commands: list[tuple[list[str], str]] = []
+
+    async def fake_run(command: list[str], cwd: str) -> dict:
+        commands.append((command, cwd))
+        return {"success": True, "stdout": "", "stderr": "", "returncode": 0}
+
+    validator = ProposalValidator(tool_root=tool_root)
+    monkeypatch.setattr(validator, "_run", fake_run)
+    monkeypatch.setattr("kinclaw.approval.validator.shutil.which", lambda name: None)
+    monkeypatch.setattr(
+        "kinclaw.approval.validator.importlib.util.find_spec",
+        lambda name: object() if name == "pytest" else None,
+    )
+
+    result = await validator.validate(str(tmp_path / "workspace"), _proposal())
+
+    assert result["success"] is True
+    assert commands == [([sys.executable, "-m", "pytest"], str(tmp_path / "workspace"))]
+
+
+@pytest.mark.asyncio
+async def test_validator_fails_closed_when_pytest_tool_is_missing(
+    tmp_path, monkeypatch
+):
+    tool_root = tmp_path / "tool-root"
+    (tool_root / ".venv/bin").mkdir(parents=True)
+    monkeypatch.setattr("kinclaw.approval.validator.shutil.which", lambda name: None)
+    monkeypatch.setattr(
+        "kinclaw.approval.validator.importlib.util.find_spec",
+        lambda name: None,
+    )
 
     validator = ProposalValidator(tool_root=tool_root)
     result = await validator.validate(str(tmp_path / "workspace"), _proposal())
@@ -431,8 +502,8 @@ async def test_validator_fails_closed_when_pytest_tool_is_missing(tmp_path):
         "success": False,
         "returncode": None,
         "stdout": "",
-        "stderr": f"Missing validation tool: {tool_root / '.venv/bin/pytest'}",
-        "commands": [str(tool_root / ".venv/bin/pytest")],
+        "stderr": "Missing validation tool: pytest",
+        "commands": [],
     }
 
 
