@@ -117,11 +117,23 @@ class ApprovalExecutor:
             if notify_fn:
                 await notify_fn("💻 Writing code in isolated workspace...")
             for relative_path, content in all_changes.items():
-                await file_skill.execute(
+                write_result = await file_skill.execute(
                     action="write",
                     path=str(workspace_path / relative_path),
                     content=content,
                 )
+                if not write_result.get("success", True):
+                    if notify_fn:
+                        await notify_fn(
+                            f"❌ Write failed: {write_result.get('error', write_result.get('stderr', ''))}"
+                        )
+                    return {
+                        "success": False,
+                        "reason": "write_failed",
+                        "stderr": write_result.get(
+                            "error", write_result.get("stderr", "")
+                        ),
+                    }
 
             if notify_fn:
                 await notify_fn("🧪 Validating changes...")
@@ -140,7 +152,17 @@ class ApprovalExecutor:
             if notify_fn:
                 await notify_fn("📝 Committing changes...")
             files = list(all_changes.keys())
-            await git_skill.execute(action="add", files=files, cwd=str(workspace_path))
+            add_result = await git_skill.execute(
+                action="add", files=files, cwd=str(workspace_path)
+            )
+            if not add_result.get("success"):
+                if notify_fn:
+                    await notify_fn(f"❌ Git add failed: {add_result.get('stderr')}")
+                return {
+                    "success": False,
+                    "reason": "add_failed",
+                    "stderr": add_result.get("stderr", ""),
+                }
             commit_result = await git_skill.execute(
                 action="commit",
                 cwd=str(workspace_path),

@@ -19,6 +19,15 @@ class ProposalValidator:
             commands.append([str(ruff_path), "check", "."])
 
         for command in commands:
+            tool_path = Path(command[0])
+            if not tool_path.exists():
+                return {
+                    "success": False,
+                    "returncode": None,
+                    "stdout": "",
+                    "stderr": f"Missing validation tool: {tool_path}",
+                    "commands": [" ".join(cmd) for cmd in commands],
+                }
             result = await self._run(command, cwd=workspace_path)
             if not result["success"]:
                 result["commands"] = [" ".join(cmd) for cmd in commands]
@@ -27,12 +36,20 @@ class ProposalValidator:
         return {"success": True, "commands": [" ".join(cmd) for cmd in commands]}
 
     async def _run(self, command: list[str], cwd: str) -> dict:
-        proc = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+            )
+        except OSError as exc:
+            return {
+                "success": False,
+                "returncode": None,
+                "stdout": "",
+                "stderr": str(exc),
+            }
         stdout, stderr = await proc.communicate()
         return {
             "success": proc.returncode == 0,

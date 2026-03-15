@@ -16,19 +16,27 @@ from kinclaw.skills.builtin.git_manager import GitManagerSkill
 
 
 class FakeFileManagerSkill:
-    def __init__(self) -> None:
+    def __init__(self, responses: dict[str, dict] | None = None) -> None:
         self.calls: list[dict] = []
+        self.responses = responses or {}
 
     async def execute(self, **kwargs) -> dict:
         self.calls.append(kwargs)
-        return {"success": True, "path": kwargs.get("path")}
+        path = kwargs.get("path")
+        return self.responses.get(path, {"success": True, "path": path})
 
 
 class FakeGitManagerSkill:
-    def __init__(self, workspace_path: Path, branch_name: str) -> None:
+    def __init__(
+        self,
+        workspace_path: Path,
+        branch_name: str,
+        responses: dict[str, dict] | None = None,
+    ) -> None:
         self.workspace_path = workspace_path
         self.branch_name = branch_name
         self.calls: list[dict] = []
+        self.responses = responses or {}
 
     async def execute(self, **kwargs) -> dict:
         self.calls.append(kwargs)
@@ -40,7 +48,7 @@ class FakeGitManagerSkill:
                 "branch": self.branch_name,
             }
         if action in {"add", "commit", "push", "cleanup_workspace"}:
-            return {"success": True}
+            return self.responses.get(action, {"success": True})
         raise AssertionError(f"Unexpected git action: {action}")
 
 
@@ -176,6 +184,83 @@ async def test_executor_blocks_commit_push_and_pr_when_validation_fails(tmp_path
     assert [Path(call["path"]) for call in file_skill.calls] == [
         workspace_path / "src/feature.py",
         workspace_path / "tests/test_feature.py",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_executor_stops_when_file_write_fails(tmp_path):
+    workspace_path = tmp_path / "proposal-worktree"
+    file_skill = FakeFileManagerSkill(
+        responses={
+            str(workspace_path / "src/feature.py"): {
+                "success": False,
+                "error": "disk full",
+            }
+        }
+    )
+    git_skill = FakeGitManagerSkill(
+        workspace_path=workspace_path,
+        branch_name="proposal/write-failure",
+    )
+    validator = FakeValidator()
+
+    audit = AuditLogger()
+    audit.log = AsyncMock()
+
+    executor = ApprovalExecutor(
+        safety=SafetyChecker(),
+        limiter=RateLimiter(),
+        audit=audit,
+        file_skill_factory=lambda: file_skill,
+        git_skill_factory=lambda: git_skill,
+        validator_factory=lambda: validator,
+    )
+
+    proposal = _proposal()
+    result = await executor.execute(proposal, _approval_for(proposal))
+
+    assert result == {"success": False, "reason": "write_failed", "stderr": "disk full"}
+    assert validator.calls == []
+    assert [call["action"] for call in git_skill.calls] == [
+        "prepare_workspace",
+        "cleanup_workspace",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_executor_stops_when_git_add_fails(tmp_path):
+    workspace_path = tmp_path / "proposal-worktree"
+    file_skill = FakeFileManagerSkill()
+    git_skill = FakeGitManagerSkill(
+        workspace_path=workspace_path,
+        branch_name="proposal/add-failure",
+        responses={"add": {"success": False, "stderr": "index.lock"}},
+    )
+    validator = FakeValidator()
+
+    audit = AuditLogger()
+    audit.log = AsyncMock()
+
+    executor = ApprovalExecutor(
+        safety=SafetyChecker(),
+        limiter=RateLimiter(),
+        audit=audit,
+        file_skill_factory=lambda: file_skill,
+        git_skill_factory=lambda: git_skill,
+        validator_factory=lambda: validator,
+    )
+
+    proposal = _proposal()
+    result = await executor.execute(proposal, _approval_for(proposal))
+
+    assert result == {"success": False, "reason": "add_failed", "stderr": "index.lock"}
+    assert validator.calls == [
+        {"workspace_path": str(workspace_path), "proposal": proposal}
+    ]
+    assert [call["action"] for call in git_skill.calls] == [
+        "prepare_workspace",
+        "add",
+        "cleanup_workspace",
     ]
 
 
@@ -332,6 +417,23 @@ async def test_validator_runs_pytest_and_ruff_when_available(tmp_path, monkeypat
             str(tmp_path / "workspace"),
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_validator_fails_closed_when_pytest_tool_is_missing(tmp_path):
+    tool_root = tmp_path / "tool-root"
+    (tool_root / ".venv/bin").mkdir(parents=True)
+
+    validator = ProposalValidator(tool_root=tool_root)
+    result = await validator.validate(str(tmp_path / "workspace"), _proposal())
+
+    assert result == {
+        "success": False,
+        "returncode": None,
+        "stdout": "",
+        "stderr": f"Missing validation tool: {tool_root / '.venv/bin/pytest'}",
+        "commands": [str(tool_root / ".venv/bin/pytest")],
+    }
 
 
 @pytest.mark.asyncio
