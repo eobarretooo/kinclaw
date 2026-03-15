@@ -56,3 +56,27 @@ def test_proposals_command_lists_pending_items_from_api(monkeypatch):
     assert result.exit_code == 0
     assert "Visible proposal" in result.output
     assert "proposal" in result.output.lower()
+
+
+def test_proposals_command_lists_sent_items_from_default_api(monkeypatch):
+    def fake_get(url, timeout):
+        assert url.endswith("/api/proposals/")
+        return _Response(
+            [
+                {
+                    "id": "proposal-sent",
+                    "title": "Awaiting approval",
+                    "risk": "low",
+                    "impact_pct": 18,
+                    "confidence_pct": 81,
+                    "status": "sent",
+                }
+            ]
+        )
+
+    monkeypatch.setattr("httpx.get", fake_get)
+
+    result = CliRunner().invoke(cli, ["proposals"])
+
+    assert result.exit_code == 0
+    assert "Awaiting approval" in result.output

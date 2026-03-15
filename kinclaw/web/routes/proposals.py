@@ -1,4 +1,5 @@
 """Proposals API routes."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
@@ -7,13 +8,17 @@ router = APIRouter()
 
 
 @router.get("/")
-async def list_proposals(status: str = "pending"):
+async def list_proposals(status: str | None = None):
     try:
         from kinclaw.database.connection import get_session
         from kinclaw.database.queries import ProposalRepo
+
         async with get_session() as session:
             repo = ProposalRepo(session)
-            results = await repo.list_by_status(status)
+            if status is None:
+                results = await repo.list_by_statuses(["pending", "sent"])
+            else:
+                results = await repo.list_by_status(status)
         return [
             {
                 "id": r.id,
@@ -36,6 +41,7 @@ async def get_proposal(proposal_id: str):
     try:
         from kinclaw.database.connection import get_session
         from kinclaw.database.queries import ProposalRepo
+
         async with get_session() as session:
             repo = ProposalRepo(session)
             rec = await repo.get(proposal_id)

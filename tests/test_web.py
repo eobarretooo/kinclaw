@@ -63,6 +63,29 @@ async def test_proposals_endpoint_returns_persisted_pending_proposals(client):
     assert data[0]["status"] == "pending"
 
 
+@pytest.mark.asyncio
+async def test_proposals_endpoint_default_list_includes_sent_proposals(client):
+    await init_db("sqlite+aiosqlite:///:memory:")
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        await repo.create(
+            id="sent-proposal",
+            title="Awaiting approval",
+            description="already sent to owner",
+            impact_pct=18,
+            risk="low",
+            confidence_pct=81,
+            status="sent",
+        )
+
+    resp = client.get("/api/proposals/")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data[0]["id"] == "sent-proposal"
+    assert data[0]["status"] == "sent"
+
+
 def test_dashboard_returns_html(client):
     resp = client.get("/")
     assert resp.status_code == 200

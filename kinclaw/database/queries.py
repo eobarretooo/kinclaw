@@ -58,6 +58,14 @@ class ProposalRepo:
         )
         return list(result.scalars().all())
 
+    async def list_by_statuses(self, statuses: list[str]) -> list[ProposalRecord]:
+        result = await self._s.execute(
+            select(ProposalRecord)
+            .where(ProposalRecord.status.in_(statuses))
+            .order_by(ProposalRecord.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def update_status(self, proposal_id: str, status: str) -> None:
         rec = await self.get(proposal_id)
         if rec:
