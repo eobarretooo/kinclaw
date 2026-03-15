@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import PurePosixPath
 
 FORBIDDEN_PATH_PREFIXES = [
@@ -16,6 +17,11 @@ class SafetyChecker:
     """Verifies that proposed changes don't touch protected paths."""
 
     def is_safe_path(self, path: str) -> bool:
+        if path.startswith(("/", "\\")):
+            return False
+        if re.match(r"^[a-zA-Z]:[/\\]", path):
+            return False
+
         normalized = path.replace("\\", "/").lstrip("/")
         parts = PurePosixPath(normalized).parts
         if any(part == ".." for part in parts):

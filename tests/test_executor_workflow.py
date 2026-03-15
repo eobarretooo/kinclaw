@@ -222,6 +222,22 @@ def test_safety_checker_rejects_path_traversal_in_proposed_changes():
     ]
 
 
+def test_safety_checker_rejects_absolute_paths_in_proposed_changes():
+    safety = SafetyChecker()
+
+    violations = safety.validate_proposal_changes(
+        {
+            "/tmp/escape.py": "print('escape')\n",
+            "C:/temp/escape_test.py": "def test_escape():\n    assert True\n",
+        }
+    )
+
+    assert violations == [
+        "Forbidden path: /tmp/escape.py",
+        "Forbidden path: C:/temp/escape_test.py",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_executor_blocks_path_escape_before_workspace_setup(tmp_path):
     workspace_path = tmp_path / "proposal-worktree"
@@ -256,6 +272,36 @@ async def test_executor_blocks_path_escape_before_workspace_setup(tmp_path):
         "Forbidden path: ../escape.py",
         "Forbidden path: tests/../../outside_test.py",
     ]
+    assert git_skill.calls == []
+    assert file_skill.calls == []
+
+
+@pytest.mark.asyncio
+async def test_executor_blocks_absolute_path_before_any_write(tmp_path):
+    workspace_path = tmp_path / "proposal-worktree"
+    git_skill = FakeGitManagerSkill(
+        workspace_path=workspace_path,
+        branch_name="proposal/absolute-path-escape",
+    )
+    file_skill = FakeFileManagerSkill()
+
+    audit = AuditLogger()
+    audit.log = AsyncMock()
+
+    executor = ApprovalExecutor(
+        safety=SafetyChecker(),
+        limiter=RateLimiter(),
+        audit=audit,
+        file_skill_factory=lambda: file_skill,
+        git_skill_factory=lambda: git_skill,
+    )
+
+    proposal = _proposal(code_changes={"/tmp/escape.py": "print('escape')\n"})
+    result = await executor.execute(proposal, _approval_for(proposal))
+
+    assert result["success"] is False
+    assert result["reason"] == "safety_violation"
+    assert result["violations"] == ["Forbidden path: /tmp/escape.py"]
     assert git_skill.calls == []
     assert file_skill.calls == []
 
