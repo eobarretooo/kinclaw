@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Query, Request
@@ -12,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 router = APIRouter()
 _templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+logger = logging.getLogger(__name__)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -46,6 +48,10 @@ async def _load_runtime_snapshot() -> dict:
             repo = ProposalRepo(session)
             proposals = await repo.list_by_statuses(["pending", "sent"])
     except Exception:
+        logger.warning(
+            "Proposal loading failed while building runtime snapshot",
+            exc_info=True,
+        )
         proposals = []
 
     pending_count = sum(1 for proposal in proposals if proposal.status == "pending")

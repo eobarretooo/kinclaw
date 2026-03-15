@@ -101,6 +101,31 @@ function renderProposals(proposals) {
   `).join('');
 }
 
+function clearDashboardFallback() {
+  const list = byId('proposals-list');
+  setText('status-badge', 'Agent unavailable');
+  setText('stat-phase', 'idle');
+  setText('stat-cycle', 'Not reported');
+  setText('stat-updated', 'Waiting for runtime');
+  setText('stat-proposals', '0');
+  setText('stat-files', '0');
+  setText('stat-lines', '0');
+  setText('stat-active-proposals', '0');
+  setText('summary-pending', '0');
+  setText('summary-sent', '0');
+  setText('summary-total', '0');
+  if (list) {
+    list.innerHTML = '<p class="empty-msg">Live runtime data is temporarily unavailable. Proposal details will reappear after the next successful update.</p>';
+  }
+  renderNotes({
+    status: 'unavailable',
+    phase: 'idle',
+    files: 0,
+    lines: 0,
+    proposal_summary: { active_total: 0 },
+  });
+}
+
 async function fetchStatus(source) {
   const response = await fetch('/api/status');
   if (!response.ok) {
@@ -116,6 +141,7 @@ async function refreshFromPoll() {
     await fetchStatus('poll');
   } catch (error) {
     console.error('Status refresh failed', error);
+    clearDashboardFallback();
     setText('connection-badge', 'runtime temporarily unavailable');
   }
 }

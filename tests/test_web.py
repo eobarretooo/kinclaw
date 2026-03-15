@@ -1,5 +1,6 @@
 """Tests for the web/API layer using FastAPI TestClient."""
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -108,7 +109,11 @@ def test_status_stream_endpoint_streams_multiple_sse_snapshots(client):
     assert '"files":3' in payload
 
 
-def test_status_endpoint_returns_state_when_proposal_loading_fails(client, monkeypatch):
+@pytest.mark.asyncio
+async def test_status_endpoint_returns_state_when_proposal_loading_fails_after_db_init(
+    client, monkeypatch, caplog
+):
+    await init_db("sqlite+aiosqlite:///:memory:")
     set_agent_state(
         {
             "is_running": True,
@@ -123,6 +128,8 @@ def test_status_endpoint_returns_state_when_proposal_loading_fails(client, monke
 
     monkeypatch.setattr(ProposalRepo, "list_by_statuses", raising_list_by_statuses)
 
+    caplog.set_level(logging.WARNING)
+
     resp = client.get("/api/status")
 
     assert resp.status_code == 200
@@ -131,9 +138,14 @@ def test_status_endpoint_returns_state_when_proposal_loading_fails(client, monke
     assert data["files"] == 17
     assert data["proposal_summary"] == {"pending": 0, "sent": 0, "active_total": 0}
     assert data["recent_proposals"] == []
+    assert "Proposal loading failed while building runtime snapshot" in caplog.text
 
 
-def test_status_stream_returns_state_when_proposal_loading_fails(client, monkeypatch):
+@pytest.mark.asyncio
+async def test_status_stream_returns_state_when_proposal_loading_fails_after_db_init(
+    client, monkeypatch, caplog
+):
+    await init_db("sqlite+aiosqlite:///:memory:")
     set_agent_state(
         {
             "is_running": False,
@@ -148,6 +160,8 @@ def test_status_stream_returns_state_when_proposal_loading_fails(client, monkeyp
 
     monkeypatch.setattr(ProposalRepo, "list_by_statuses", raising_list_by_statuses)
 
+    caplog.set_level(logging.WARNING)
+
     with client.stream("GET", "/api/status/stream?interval_ms=1&max_events=1") as resp:
         payload = "".join(chunk for chunk in resp.iter_text() if chunk)
 
@@ -155,6 +169,7 @@ def test_status_stream_returns_state_when_proposal_loading_fails(client, monkeyp
     assert '"status":"idle"' in payload
     assert '"proposal_summary":{"pending":0,"sent":0,"active_total":0}' in payload
     assert '"recent_proposals":[]' in payload
+    assert "Proposal loading failed while building runtime snapshot" in caplog.text
 
 
 def test_proposals_endpoint_returns_list(client):
@@ -266,6 +281,28 @@ def test_repo_landing_page_uses_honest_runtime_copy():
     assert "liveFilesValue.textContent = '--'" in landing
     assert "liveLinesValue.textContent = '--'" in landing
     assert "liveStatusValue.textContent = 'aguardando'" in landing
+
+
+def test_dashboard_js_clears_runtime_values_when_fallback_triggers():
+    dashboard_js = (
+        Path(__file__).resolve().parents[1]
+        / "kinclaw"
+        / "web"
+        / "static"
+        / "dashboard.js"
+    ).read_text(encoding="utf-8")
+
+    assert "function clearDashboardFallback()" in dashboard_js
+    assert "setText('stat-phase', 'idle')" in dashboard_js
+    assert "setText('stat-cycle', 'Not reported')" in dashboard_js
+    assert "setText('stat-proposals', '0')" in dashboard_js
+    assert "setText('stat-files', '0')" in dashboard_js
+    assert "setText('stat-lines', '0')" in dashboard_js
+    assert "setText('stat-active-proposals', '0')" in dashboard_js
+    assert (
+        'list.innerHTML = \'<p class="empty-msg">Live runtime data is temporarily unavailable.'
+        in dashboard_js
+    )
 
 
 def test_github_webhook_accepted(client):
