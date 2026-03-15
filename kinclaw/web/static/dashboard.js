@@ -1,7 +1,5 @@
-const pollIntervals = {
-  status: 15000,
-  proposals: 30000,
-};
+const STATUS_POLL_INTERVAL = 15000;
+let statusPollTimer = null;
 
 function byId(id) {
   return document.getElementById(id);
@@ -139,7 +137,9 @@ function startStream() {
     setText('connection-badge', 'stream interrupted, falling back to polling');
     stream.close();
     refreshFromPoll();
-    window.setInterval(refreshFromPoll, pollIntervals.status);
+    if (statusPollTimer === null) {
+      statusPollTimer = window.setInterval(refreshFromPoll, STATUS_POLL_INTERVAL);
+    }
   };
 
   return true;
@@ -148,5 +148,5 @@ function startStream() {
 refreshFromPoll();
 
 if (!startStream()) {
-  window.setInterval(refreshFromPoll, pollIntervals.status);
+  statusPollTimer = window.setInterval(refreshFromPoll, STATUS_POLL_INTERVAL);
 }

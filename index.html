@@ -1695,6 +1695,14 @@ const liveProposalsValue = document.getElementById('live-proposals-value');
 const liveFilesValue = document.getElementById('live-files-value');
 const liveLinesValue = document.getElementById('live-lines-value');
 const runtimeStatusNote = document.getElementById('runtime-status-note');
+let runtimePollTimer = null;
+
+function clearRuntimeValues() {
+  liveStatusValue.textContent = 'aguardando';
+  liveProposalsValue.textContent = '--';
+  liveFilesValue.textContent = '--';
+  liveLinesValue.textContent = '--';
+}
 
 function applyRuntimeSnapshot(snapshot, sourceLabel) {
   if (!snapshot) return;
@@ -1713,7 +1721,15 @@ async function fetchRuntimeSnapshot() {
 }
 
 function applyHonestFallback() {
+  clearRuntimeValues();
   runtimeStatusNote.textContent = 'Dados em tempo real aparecem aqui quando o dashboard esta ativo';
+}
+
+function ensureRuntimePolling() {
+  if (runtimePollTimer !== null) {
+    return;
+  }
+  runtimePollTimer = window.setInterval(() => fetchRuntimeSnapshot().catch(applyHonestFallback), 30000);
 }
 
 function connectRuntimeStream() {
@@ -1728,14 +1744,14 @@ function connectRuntimeStream() {
   stream.onerror = () => {
     stream.close();
     fetchRuntimeSnapshot().catch(applyHonestFallback);
-    window.setInterval(() => fetchRuntimeSnapshot().catch(applyHonestFallback), 30000);
+    ensureRuntimePolling();
   };
   return true;
 }
 
 if (!connectRuntimeStream()) {
   fetchRuntimeSnapshot().catch(applyHonestFallback);
-  window.setInterval(() => fetchRuntimeSnapshot().catch(applyHonestFallback), 30000);
+  ensureRuntimePolling();
 }
 </script>
 </body>

@@ -108,6 +108,55 @@ def test_status_stream_endpoint_streams_multiple_sse_snapshots(client):
     assert '"files":3' in payload
 
 
+def test_status_endpoint_returns_state_when_proposal_loading_fails(client, monkeypatch):
+    set_agent_state(
+        {
+            "is_running": True,
+            "phase": "analyzing",
+            "proposals_today": 5,
+            "last_analysis_metrics": {"files": 17, "lines": 510},
+        }
+    )
+
+    async def raising_list_by_statuses(self, statuses):
+        raise ValueError("database read failed")
+
+    monkeypatch.setattr(ProposalRepo, "list_by_statuses", raising_list_by_statuses)
+
+    resp = client.get("/api/status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "running"
+    assert data["files"] == 17
+    assert data["proposal_summary"] == {"pending": 0, "sent": 0, "active_total": 0}
+    assert data["recent_proposals"] == []
+
+
+def test_status_stream_returns_state_when_proposal_loading_fails(client, monkeypatch):
+    set_agent_state(
+        {
+            "is_running": False,
+            "phase": "idle",
+            "proposals_today": 0,
+            "last_analysis_metrics": {"files": 9, "lines": 81},
+        }
+    )
+
+    async def raising_list_by_statuses(self, statuses):
+        raise ValueError("database read failed")
+
+    monkeypatch.setattr(ProposalRepo, "list_by_statuses", raising_list_by_statuses)
+
+    with client.stream("GET", "/api/status/stream?interval_ms=1&max_events=1") as resp:
+        payload = "".join(chunk for chunk in resp.iter_text() if chunk)
+
+    assert resp.status_code == 200
+    assert '"status":"idle"' in payload
+    assert '"proposal_summary":{"pending":0,"sent":0,"active_total":0}' in payload
+    assert '"recent_proposals":[]' in payload
+
+
 def test_proposals_endpoint_returns_list(client):
     """Returns list (possibly empty if DB not initialized)."""
     resp = client.get("/api/proposals/")
@@ -213,6 +262,10 @@ def test_repo_landing_page_uses_honest_runtime_copy():
     assert "new EventSource('/api/status/stream')" in landing
     assert "fetch('/api/status')" in landing
     assert "runtime-status-note" in landing
+    assert "liveProposalsValue.textContent = '--'" in landing
+    assert "liveFilesValue.textContent = '--'" in landing
+    assert "liveLinesValue.textContent = '--'" in landing
+    assert "liveStatusValue.textContent = 'aguardando'" in landing
 
 
 def test_github_webhook_accepted(client):

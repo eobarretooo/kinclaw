@@ -45,7 +45,7 @@ async def _load_runtime_snapshot() -> dict:
         async with get_session() as session:
             repo = ProposalRepo(session)
             proposals = await repo.list_by_statuses(["pending", "sent"])
-    except RuntimeError:
+    except Exception:
         proposals = []
 
     pending_count = sum(1 for proposal in proposals if proposal.status == "pending")
