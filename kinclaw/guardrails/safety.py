@@ -1,5 +1,8 @@
 """Safety checks: forbidden paths, dangerous operations."""
+
 from __future__ import annotations
+
+from pathlib import PurePosixPath
 
 FORBIDDEN_PATH_PREFIXES = [
     "kinclaw/guardrails/",
@@ -14,6 +17,9 @@ class SafetyChecker:
 
     def is_safe_path(self, path: str) -> bool:
         normalized = path.replace("\\", "/").lstrip("/")
+        parts = PurePosixPath(normalized).parts
+        if any(part == ".." for part in parts):
+            return False
         return not any(normalized.startswith(p) for p in FORBIDDEN_PATH_PREFIXES)
 
     def is_safe_content(self, content: str) -> bool:
