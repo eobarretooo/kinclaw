@@ -204,3 +204,43 @@ async def test_run_improvement_cycle_marks_rejected_proposal_in_database():
 
     assert record is not None
     assert record.status == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_run_improvement_cycle_marks_timed_out_proposal_as_sent():
+    await init_db("sqlite+aiosqlite:///:memory:")
+
+    settings = Settings(
+        anthropic_api_key="test",
+        github_token="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+    agent = KinClawAgent(
+        settings=settings, provider=AsyncMock(), bus=bus, router=router
+    )
+
+    proposal = Proposal(
+        id="proposal-timeout",
+        title="Timeout me",
+        description="No one responds to this proposal.",
+        confidence_pct=80,
+    )
+
+    agent._analyzer.analyze = AsyncMock(
+        return_value={"metrics": {"files": 3, "lines": 14}}
+    )
+    agent._comparator.find_gaps = AsyncMock(return_value=[{"type": "gap"}])
+    agent._proposer.generate = AsyncMock(return_value=[proposal])
+    agent.broadcast = AsyncMock()
+    agent._approval_queue.get_for = AsyncMock(return_value=None)
+
+    await agent.run_improvement_cycle()
+
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        record = await repo.get(proposal.id)
+
+    assert record is not None
+    assert record.status == "sent"

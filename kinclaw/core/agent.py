@@ -137,6 +137,7 @@ class KinClawAgent:
         # 4. Notify owner
         notify_text = self._format_proposal_notification(proposal)
         await self.broadcast(notify_text)
+        await self._update_proposal_status(proposal.id, "sent")
         logger.info(
             "Proposal sent: {} (confidence: {}%)",
             proposal.title,
