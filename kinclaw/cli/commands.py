@@ -90,14 +90,14 @@ def status():
 
 @cli.command(name="proposals")
 def list_proposals():
-    """List pending proposals."""
+    """List proposals awaiting approval."""
     import httpx
 
     try:
         r = httpx.get("http://localhost:8000/api/proposals/", timeout=3)
         items = r.json()
         if not items:
-            click.echo("No pending proposals.")
+            click.echo("No actionable proposals awaiting approval.")
             return
         for p in items:
             click.echo(

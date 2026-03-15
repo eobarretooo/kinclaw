@@ -16,7 +16,7 @@ from kinclaw.channels.router import ChannelRouter
 from kinclaw.config import Settings
 from kinclaw.core.bus import MessageBus
 from kinclaw.core.state import AgentPhase, AgentState
-from kinclaw.core.types import InboundMessage, Proposal
+from kinclaw.core.types import InboundMessage, Proposal, ProposalStatus
 from kinclaw.database.connection import get_session
 from kinclaw.database.queries import ProposalRepo
 from kinclaw.guardrails.audit import AuditLogger
@@ -97,6 +97,7 @@ class KinClawAgent:
     async def run_improvement_cycle(self) -> None:
         """One complete analyze → propose → approve → execute cycle."""
         self._state.reset_daily_counters_if_new_day()
+        self._state.error = None
 
         if self._state.proposals_today >= self._settings.max_proposals_per_day:
             logger.info(
@@ -107,92 +108,105 @@ class KinClawAgent:
 
         logger.info("Starting improvement cycle")
         await self._audit.log("cycle_start")
+        proposal: Proposal | None = None
 
-        # 1. Analyze
-        analysis = await self.analyze_self()
-        logger.info(
-            "Analysis complete: {} files, {} lines, {} gaps",
-            analysis["metrics"]["files"],
-            analysis["metrics"]["lines"],
-            len(analysis.get("gaps", [])),
-        )
-
-        # 2. Generate proposals
-        proposals = await self.propose_improvements(analysis)
-        if not proposals:
-            logger.info("No proposals generated this cycle")
-            self._state.phase = AgentPhase.IDLE
-            self._publish_state()
-            return
-
-        # 3. Take best proposal (highest confidence)
-        proposals.sort(key=lambda p: p.confidence_pct, reverse=True)
-        proposal = proposals[0]
-        self._state.proposals_today += 1
-        self._state.current_proposal_id = proposal.id
-        self._state.phase = AgentPhase.AWAITING_APPROVAL
-        self._publish_state()
-        await self._save_proposal(proposal, status="pending")
-
-        # 4. Notify owner
-        notify_text = self._format_proposal_notification(proposal)
-        await self.broadcast(notify_text)
-        await self._update_proposal_status(proposal.id, "sent")
-        logger.info(
-            "Proposal sent: {} (confidence: {}%)",
-            proposal.title,
-            proposal.confidence_pct,
-        )
-
-        # 5. Wait for approval
-        self._approval_queue.register_proposal(proposal.id)
-        approval = await self._approval_queue.get_for(proposal.id, timeout=3600)
-
-        if approval is None:
-            await self.broadcast(
-                f"⏰ Proposal timed out with no response: {proposal.title}"
+        try:
+            # 1. Analyze
+            analysis = await self.analyze_self()
+            logger.info(
+                "Analysis complete: {} files, {} lines, {} gaps",
+                analysis["metrics"]["files"],
+                analysis["metrics"]["lines"],
+                len(analysis.get("gaps", [])),
             )
-            logger.info("Proposal {} timed out", proposal.id)
-            self._state.phase = AgentPhase.IDLE
-            self._state.current_proposal_id = None
-            self._publish_state()
-            return
 
-        # 6. Execute if approved
-        await self._update_proposal_status(
-            proposal.id, "approved" if approval.approved else "rejected"
-        )
-        if approval.approved:
-            self._state.phase = AgentPhase.EXECUTING
-            self._publish_state()
-            await self._update_proposal_status(proposal.id, "executing")
-        else:
-            self._state.phase = AgentPhase.REPORTING
-            self._publish_state()
-        result = await self._executor.execute(
-            proposal, approval, notify_fn=self.broadcast
-        )
+            # 2. Generate proposals
+            proposals = await self.propose_improvements(analysis)
+            if not proposals:
+                logger.info("No proposals generated this cycle")
+                self._state.phase = AgentPhase.IDLE
+                self._publish_state()
+                return
 
-        # 7. Report
-        self._state.phase = AgentPhase.REPORTING
-        self._publish_state()
-        if result.get("success"):
-            await self._audit.log("cycle_success", detail=proposal.title)
-            await self._update_proposal_status(proposal.id, "done")
-        else:
-            await self._audit.log(
-                "cycle_failed",
-                detail=str(result.get("reason")),
-                result="failed",
+            # 3. Take best proposal (highest confidence)
+            proposals.sort(key=lambda p: p.confidence_pct, reverse=True)
+            proposal = proposals[0]
+            self._state.proposals_today += 1
+            self._state.current_proposal_id = proposal.id
+            self._state.phase = AgentPhase.AWAITING_APPROVAL
+            self._publish_state()
+            await self._save_proposal(proposal, status=ProposalStatus.PENDING)
+
+            # 4. Notify owner
+            notify_text = self._format_proposal_notification(proposal)
+            await self.broadcast(notify_text)
+            await self._update_proposal_status(proposal.id, ProposalStatus.SENT)
+            logger.info(
+                "Proposal sent: {} (confidence: {}%)",
+                proposal.title,
+                proposal.confidence_pct,
             )
+
+            # 5. Wait for approval
+            self._approval_queue.register_proposal(proposal.id)
+            approval = await self._approval_queue.get_for(proposal.id, timeout=3600)
+
+            if approval is None:
+                await self.broadcast(
+                    f"⏰ Proposal timed out with no response: {proposal.title}"
+                )
+                logger.info("Proposal {} timed out", proposal.id)
+                return
+
+            # 6. Execute if approved
             await self._update_proposal_status(
                 proposal.id,
-                "rejected" if result.get("reason") == "rejected" else "failed",
+                ProposalStatus.APPROVED
+                if approval.approved
+                else ProposalStatus.REJECTED,
+            )
+            if approval.approved:
+                self._state.phase = AgentPhase.EXECUTING
+                self._publish_state()
+                await self._update_proposal_status(
+                    proposal.id, ProposalStatus.EXECUTING
+                )
+            else:
+                self._state.phase = AgentPhase.REPORTING
+                self._publish_state()
+            result = await self._executor.execute(
+                proposal, approval, notify_fn=self.broadcast
             )
 
-        self._state.phase = AgentPhase.IDLE
-        self._state.current_proposal_id = None
-        self._publish_state()
+            # 7. Report
+            self._state.phase = AgentPhase.REPORTING
+            self._publish_state()
+            if result.get("success"):
+                await self._audit.log("cycle_success", detail=proposal.title)
+                await self._update_proposal_status(proposal.id, ProposalStatus.DONE)
+            else:
+                await self._audit.log(
+                    "cycle_failed",
+                    detail=str(result.get("reason")),
+                    result="failed",
+                )
+                await self._update_proposal_status(
+                    proposal.id,
+                    ProposalStatus.REJECTED
+                    if result.get("reason") == "rejected"
+                    else ProposalStatus.FAILED,
+                )
+        except Exception as exc:
+            self._state.error = str(exc)
+            if proposal is not None:
+                await self._audit.log("cycle_failed", detail=str(exc), result="failed")
+                await self._update_proposal_status(proposal.id, ProposalStatus.FAILED)
+            raise
+        finally:
+            if proposal is not None:
+                self._state.current_proposal_id = None
+                self._state.phase = AgentPhase.IDLE
+                self._publish_state()
 
     async def run_forever(self) -> None:
         """Perpetual loop: cycle, sleep, repeat."""
@@ -281,12 +295,16 @@ class KinClawAgent:
         if self._state_publisher is not None:
             self._state_publisher(self._state.to_dict())
 
-    async def _save_proposal(self, proposal: Proposal, status: str = "pending") -> None:
+    async def _save_proposal(
+        self, proposal: Proposal, status: ProposalStatus = ProposalStatus.PENDING
+    ) -> None:
         async with get_session() as session:
             repo = ProposalRepo(session)
             await repo.save_proposal(proposal, status=status)
 
-    async def _update_proposal_status(self, proposal_id: str, status: str) -> None:
+    async def _update_proposal_status(
+        self, proposal_id: str, status: ProposalStatus
+    ) -> None:
         async with get_session() as session:
             repo = ProposalRepo(session)
             await repo.update_status(proposal_id, status)

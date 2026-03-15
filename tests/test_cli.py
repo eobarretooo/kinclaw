@@ -80,3 +80,16 @@ def test_proposals_command_lists_sent_items_from_default_api(monkeypatch):
 
     assert result.exit_code == 0
     assert "Awaiting approval" in result.output
+
+
+def test_proposals_command_empty_list_uses_actionable_wording(monkeypatch):
+    def fake_get(url, timeout):
+        assert url.endswith("/api/proposals/")
+        return _Response([])
+
+    monkeypatch.setattr("httpx.get", fake_get)
+
+    result = CliRunner().invoke(cli, ["proposals"])
+
+    assert result.exit_code == 0
+    assert "No actionable proposals awaiting approval." in result.output

@@ -5,7 +5,7 @@ from kinclaw.core.agent import KinClawAgent
 from kinclaw.core.bus import MessageBus
 from kinclaw.channels.router import ChannelRouter
 from kinclaw.config import Settings
-from kinclaw.core.types import Approval, Proposal
+from kinclaw.core.types import Approval, Proposal, ProposalStatus
 from kinclaw.database.connection import get_session, init_db
 from kinclaw.database.queries import ProposalRepo
 
@@ -244,3 +244,55 @@ async def test_run_improvement_cycle_marks_timed_out_proposal_as_sent():
 
     assert record is not None
     assert record.status == "sent"
+
+
+@pytest.mark.asyncio
+async def test_run_improvement_cycle_cleans_up_after_execution_exception():
+    await init_db("sqlite+aiosqlite:///:memory:")
+
+    settings = Settings(
+        anthropic_api_key="test",
+        github_token="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+    agent = KinClawAgent(
+        settings=settings, provider=AsyncMock(), bus=bus, router=router
+    )
+
+    proposal = Proposal(
+        id="proposal-exception",
+        title="Explode during execution",
+        description="Executor raises after approval.",
+        confidence_pct=85,
+    )
+
+    agent._analyzer.analyze = AsyncMock(
+        return_value={"metrics": {"files": 4, "lines": 20}}
+    )
+    agent._comparator.find_gaps = AsyncMock(return_value=[{"type": "gap"}])
+    agent._proposer.generate = AsyncMock(return_value=[proposal])
+    agent.broadcast = AsyncMock()
+    agent._approval_queue.get_for = AsyncMock(
+        return_value=Approval(
+            proposal_id=proposal.id,
+            approved=True,
+            channel="telegram",
+            raw_message="aprova",
+        )
+    )
+    agent._executor.execute = AsyncMock(side_effect=RuntimeError("boom"))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await agent.run_improvement_cycle()
+
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        record = await repo.get(proposal.id)
+
+    assert record is not None
+    assert record.status == ProposalStatus.FAILED.value
+    assert agent.state.current_proposal_id is None
+    assert agent.state.phase == AgentPhase.IDLE
+    assert agent.state.error == "boom"

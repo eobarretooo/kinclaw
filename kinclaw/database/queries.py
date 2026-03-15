@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from kinclaw.core.types import Proposal
+from kinclaw.core.types import Proposal, ProposalStatus
 from kinclaw.database.models import AuditRecord, ProposalRecord
 
 
@@ -27,9 +27,10 @@ class ProposalRepo:
         return result.scalar_one_or_none()
 
     async def save_proposal(
-        self, proposal: Proposal, status: str | None = None
+        self, proposal: Proposal, status: ProposalStatus | str | None = None
     ) -> ProposalRecord:
         rec = await self.get(proposal.id)
+        status_value = status.value if isinstance(status, ProposalStatus) else status
         values = {
             "title": proposal.title,
             "description": proposal.description,
@@ -38,7 +39,7 @@ class ProposalRepo:
             "confidence_pct": proposal.confidence_pct,
             "estimated_hours": proposal.estimated_hours,
             "reference_claw": proposal.reference_claw,
-            "status": status or proposal.status.value,
+            "status": status_value or proposal.status.value,
         }
         if rec is None:
             rec = ProposalRecord(id=proposal.id, **values)
@@ -50,26 +51,36 @@ class ProposalRepo:
         await self._s.refresh(rec)
         return rec
 
-    async def list_by_status(self, status: str) -> list[ProposalRecord]:
+    async def list_by_status(
+        self, status: ProposalStatus | str
+    ) -> list[ProposalRecord]:
+        status_value = status.value if isinstance(status, ProposalStatus) else status
         result = await self._s.execute(
             select(ProposalRecord)
-            .where(ProposalRecord.status == status)
+            .where(ProposalRecord.status == status_value)
             .order_by(ProposalRecord.created_at.desc())
         )
         return list(result.scalars().all())
 
-    async def list_by_statuses(self, statuses: list[str]) -> list[ProposalRecord]:
+    async def list_by_statuses(
+        self, statuses: list[ProposalStatus | str]
+    ) -> list[ProposalRecord]:
+        status_values = [
+            s.value if isinstance(s, ProposalStatus) else s for s in statuses
+        ]
         result = await self._s.execute(
             select(ProposalRecord)
-            .where(ProposalRecord.status.in_(statuses))
+            .where(ProposalRecord.status.in_(status_values))
             .order_by(ProposalRecord.created_at.desc())
         )
         return list(result.scalars().all())
 
-    async def update_status(self, proposal_id: str, status: str) -> None:
+    async def update_status(
+        self, proposal_id: str, status: ProposalStatus | str
+    ) -> None:
         rec = await self.get(proposal_id)
         if rec:
-            rec.status = status
+            rec.status = status.value if isinstance(status, ProposalStatus) else status
             await self._s.commit()
 
 
