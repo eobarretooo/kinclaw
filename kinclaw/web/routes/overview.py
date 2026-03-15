@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -74,11 +75,25 @@ async def status():
 
 
 @router.get("/api/status/stream")
-async def status_stream():
+async def status_stream(
+    request: Request,
+    interval_ms: int = Query(default=15000, ge=1),
+    max_events: int | None = Query(default=None, ge=1),
+):
     async def event_stream():
-        snapshot = await _load_runtime_snapshot()
-        payload = json.dumps(snapshot, separators=(",", ":"))
-        yield f"event: status\ndata: {payload}\n\n"
+        sent_events = 0
+        while True:
+            if await request.is_disconnected():
+                break
+
+            snapshot = await _load_runtime_snapshot()
+            payload = json.dumps(snapshot, separators=(",", ":"))
+            yield f"event: status\ndata: {payload}\n\n"
+            sent_events += 1
+            if max_events is not None and sent_events >= max_events:
+                break
+            yield ": keepalive\n\n"
+            await asyncio.sleep(interval_ms / 1000)
 
     return StreamingResponse(
         event_stream(),

@@ -82,7 +82,7 @@ async def test_status_endpoint_returns_runtime_snapshot_with_proposal_summary(cl
     assert data["last_cycle_started_at"] == "2026-03-15T10:00:00Z"
 
 
-def test_status_stream_endpoint_returns_sse_snapshot(client):
+def test_status_stream_endpoint_streams_multiple_sse_snapshots(client):
     set_agent_state(
         {
             "is_running": False,
@@ -92,18 +92,18 @@ def test_status_stream_endpoint_returns_sse_snapshot(client):
         }
     )
 
-    with client.stream("GET", "/api/status/stream") as resp:
+    with client.stream("GET", "/api/status/stream?interval_ms=1&max_events=2") as resp:
         chunks = []
         for chunk in resp.iter_text():
             if chunk:
                 chunks.append(chunk)
-            if "event: status" in "".join(chunks):
+            if "".join(chunks).count("event: status") >= 2:
                 break
 
     payload = "".join(chunks)
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/event-stream")
-    assert "event: status" in payload
+    assert payload.count("event: status") == 2
     assert '"status":"idle"' in payload
     assert '"files":3' in payload
 
@@ -210,6 +210,9 @@ def test_repo_landing_page_uses_honest_runtime_copy():
     assert "PR #284" not in landing
     assert "live-status-value" in landing
     assert "Dados em tempo real aparecem aqui quando o dashboard esta ativo" in landing
+    assert "new EventSource('/api/status/stream')" in landing
+    assert "fetch('/api/status')" in landing
+    assert "runtime-status-note" in landing
 
 
 def test_github_webhook_accepted(client):

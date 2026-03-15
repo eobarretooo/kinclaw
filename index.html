@@ -1248,17 +1248,17 @@
         <div class="stat-delta">Dados em tempo real aparecem aqui quando o dashboard esta ativo</div>
       </div>
       <div class="stat-item">
-        <div class="stat-value"><span class="accent">--</span></div>
+        <div class="stat-value" id="live-proposals-value"><span class="accent">--</span></div>
         <div class="stat-label">Propostas ativas</div>
         <div class="stat-delta">Reflete fila pendente ou enviada</div>
       </div>
       <div class="stat-item">
-        <div class="stat-value"><span class="accent">--</span></div>
+        <div class="stat-value" id="live-files-value"><span class="accent">--</span></div>
         <div class="stat-label">Arquivos analisados</div>
         <div class="stat-delta">Atualizado pela ultima analise registrada</div>
       </div>
       <div class="stat-item">
-        <div class="stat-value"><span class="accent">--</span></div>
+        <div class="stat-value" id="live-lines-value"><span class="accent">--</span></div>
         <div class="stat-label">Linhas vistas</div>
         <div class="stat-delta">Sem estimativas de marketing</div>
       </div>
@@ -1587,7 +1587,7 @@
     <li><a href="#">Manifesto</a></li>
     <li><a href="#">MIT License</a></li>
   </ul>
-  <div class="footer-status">status exibido quando o runtime responder</div>
+  <div class="footer-status" id="runtime-status-note">status exibido quando o runtime responder</div>
 </footer>
 
 <script>
@@ -1687,6 +1687,55 @@ if (chatReveal) {
     if (entries[0].isIntersecting) startChat();
   }, { threshold: 0.3 });
   chatObs.observe(chatReveal);
+}
+
+// ─── LIVE RUNTIME STATUS ───────────────────────
+const liveStatusValue = document.getElementById('live-status-value');
+const liveProposalsValue = document.getElementById('live-proposals-value');
+const liveFilesValue = document.getElementById('live-files-value');
+const liveLinesValue = document.getElementById('live-lines-value');
+const runtimeStatusNote = document.getElementById('runtime-status-note');
+
+function applyRuntimeSnapshot(snapshot, sourceLabel) {
+  if (!snapshot) return;
+  liveStatusValue.textContent = snapshot.status || 'desconhecido';
+  liveProposalsValue.textContent = String((snapshot.proposal_summary && snapshot.proposal_summary.active_total) || 0);
+  liveFilesValue.textContent = String(snapshot.files ?? '--');
+  liveLinesValue.textContent = String(snapshot.lines ?? '--');
+  runtimeStatusNote.textContent = `status ao vivo via ${sourceLabel}`;
+}
+
+async function fetchRuntimeSnapshot() {
+  const response = await fetch('/api/status');
+  if (!response.ok) throw new Error('runtime unavailable');
+  const snapshot = await response.json();
+  applyRuntimeSnapshot(snapshot, 'polling');
+}
+
+function applyHonestFallback() {
+  runtimeStatusNote.textContent = 'Dados em tempo real aparecem aqui quando o dashboard esta ativo';
+}
+
+function connectRuntimeStream() {
+  if (!window.EventSource) {
+    return false;
+  }
+
+  const stream = new EventSource('/api/status/stream');
+  stream.addEventListener('status', (event) => {
+    applyRuntimeSnapshot(JSON.parse(event.data), 'streaming');
+  });
+  stream.onerror = () => {
+    stream.close();
+    fetchRuntimeSnapshot().catch(applyHonestFallback);
+    window.setInterval(() => fetchRuntimeSnapshot().catch(applyHonestFallback), 30000);
+  };
+  return true;
+}
+
+if (!connectRuntimeStream()) {
+  fetchRuntimeSnapshot().catch(applyHonestFallback);
+  window.setInterval(() => fetchRuntimeSnapshot().catch(applyHonestFallback), 30000);
 }
 </script>
 </body>
