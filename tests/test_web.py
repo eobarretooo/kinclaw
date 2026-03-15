@@ -1,5 +1,7 @@
 """Tests for the web/API layer using FastAPI TestClient."""
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from kinclaw.database.connection import init_db, get_session
@@ -31,6 +33,79 @@ def test_status_endpoint_returns_json(client):
     assert data["name"] == "KinClaw"
     assert data["files"] == 11
     assert data["lines"] == 230
+
+
+@pytest.mark.asyncio
+async def test_status_endpoint_returns_runtime_snapshot_with_proposal_summary(client):
+    await init_db("sqlite+aiosqlite:///:memory:")
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        await repo.create(
+            id="pending-runtime-proposal",
+            title="Tighten dashboard refresh loop",
+            description="reduce stale UI state",
+            impact_pct=12,
+            risk="low",
+            confidence_pct=88,
+            status="pending",
+        )
+        await repo.create(
+            id="sent-runtime-proposal",
+            title="Expose richer runtime snapshot",
+            description="share live status details",
+            impact_pct=9,
+            risk="medium",
+            confidence_pct=73,
+            status="sent",
+        )
+
+    set_agent_state(
+        {
+            "is_running": True,
+            "phase": "reviewing_proposals",
+            "proposals_today": 4,
+            "last_cycle_started_at": "2026-03-15T10:00:00Z",
+            "last_analysis_metrics": {"files": 19, "lines": 640},
+        }
+    )
+
+    resp = client.get("/api/status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "running"
+    assert data["proposal_summary"] == {"pending": 1, "sent": 1, "active_total": 2}
+    assert [proposal["id"] for proposal in data["recent_proposals"]] == [
+        "sent-runtime-proposal",
+        "pending-runtime-proposal",
+    ]
+    assert data["last_cycle_started_at"] == "2026-03-15T10:00:00Z"
+
+
+def test_status_stream_endpoint_returns_sse_snapshot(client):
+    set_agent_state(
+        {
+            "is_running": False,
+            "phase": "idle",
+            "proposals_today": 0,
+            "last_analysis_metrics": {"files": 3, "lines": 42},
+        }
+    )
+
+    with client.stream("GET", "/api/status/stream") as resp:
+        chunks = []
+        for chunk in resp.iter_text():
+            if chunk:
+                chunks.append(chunk)
+            if "event: status" in "".join(chunks):
+                break
+
+    payload = "".join(chunks)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    assert "event: status" in payload
+    assert '"status":"idle"' in payload
+    assert '"files":3' in payload
 
 
 def test_proposals_endpoint_returns_list(client):
@@ -121,6 +196,20 @@ def test_dashboard_returns_html(client):
     assert resp.status_code == 200
     assert "KinClaw" in resp.text
     assert "<!DOCTYPE html>" in resp.text
+    assert "Live Runtime" in resp.text
+    assert "proposal-summary" in resp.text
+
+
+def test_repo_landing_page_uses_honest_runtime_copy():
+    landing = (Path(__file__).resolve().parents[1] / "index.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "47 dias" not in landing
+    assert "v0.7.3" not in landing
+    assert "PR #284" not in landing
+    assert "live-status-value" in landing
+    assert "Dados em tempo real aparecem aqui quando o dashboard esta ativo" in landing
 
 
 def test_github_webhook_accepted(client):

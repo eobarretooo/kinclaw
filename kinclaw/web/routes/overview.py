@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 router = APIRouter()
@@ -17,17 +18,70 @@ async def dashboard(request: Request):
     return _templates.TemplateResponse("index.html", {"request": request})
 
 
-@router.get("/api/status")
-async def status():
+def _serialize_proposal(record) -> dict:
+    return {
+        "id": record.id,
+        "title": record.title,
+        "status": record.status,
+        "impact_pct": record.impact_pct,
+        "risk": record.risk,
+        "confidence_pct": record.confidence_pct,
+        "created_at": record.created_at.isoformat(),
+    }
+
+
+async def _load_runtime_snapshot() -> dict:
     from kinclaw.web.app import get_agent_state
 
-    state = get_agent_state()
+    state = get_agent_state().copy()
     metrics = state.get("last_analysis_metrics", {})
+    proposals = []
+
+    try:
+        from kinclaw.database.connection import get_session
+        from kinclaw.database.queries import ProposalRepo
+
+        async with get_session() as session:
+            repo = ProposalRepo(session)
+            proposals = await repo.list_by_statuses(["pending", "sent"])
+    except RuntimeError:
+        proposals = []
+
+    pending_count = sum(1 for proposal in proposals if proposal.status == "pending")
+    sent_count = sum(1 for proposal in proposals if proposal.status == "sent")
+
     return {
         "status": "running" if state.get("is_running") else "idle",
         "version": "1.0.0",
         "name": "KinClaw",
         "files": metrics.get("files", 0),
         "lines": metrics.get("lines", 0),
+        "proposal_summary": {
+            "pending": pending_count,
+            "sent": sent_count,
+            "active_total": len(proposals),
+        },
+        "recent_proposals": [
+            _serialize_proposal(proposal) for proposal in proposals[:5]
+        ],
         **state,
     }
+
+
+@router.get("/api/status")
+async def status():
+    return await _load_runtime_snapshot()
+
+
+@router.get("/api/status/stream")
+async def status_stream():
+    async def event_stream():
+        snapshot = await _load_runtime_snapshot()
+        payload = json.dumps(snapshot, separators=(",", ":"))
+        yield f"event: status\ndata: {payload}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
