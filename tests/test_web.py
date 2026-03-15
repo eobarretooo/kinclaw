@@ -83,7 +83,45 @@ async def test_status_endpoint_returns_runtime_snapshot_with_proposal_summary(cl
     assert data["last_cycle_started_at"] == "2026-03-15T10:00:00Z"
 
 
+@pytest.mark.asyncio
+async def test_status_endpoint_reports_awaiting_approval_when_pending_proposals_exist(
+    client,
+):
+    await init_db("sqlite+aiosqlite:///:memory:")
+    async with get_session() as session:
+        repo = ProposalRepo(session)
+        await repo.create(
+            id="awaiting-approval-proposal",
+            title="Needs owner approval",
+            description="still actionable",
+            impact_pct=11,
+            risk="low",
+            confidence_pct=79,
+            status="pending",
+        )
+
+    set_agent_state(
+        {
+            "is_running": False,
+            "phase": "idle",
+            "proposals_today": 1,
+            "last_analysis_metrics": {"files": 6, "lines": 91},
+        }
+    )
+
+    resp = client.get("/api/status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "awaiting_approval"
+    assert data["phase"] == "awaiting_approval"
+    assert data["proposal_summary"] == {"pending": 1, "sent": 0, "active_total": 1}
+
+
 def test_status_stream_endpoint_streams_multiple_sse_snapshots(client):
+    import asyncio
+
+    asyncio.run(init_db("sqlite+aiosqlite:///:memory:"))
     set_agent_state(
         {
             "is_running": False,

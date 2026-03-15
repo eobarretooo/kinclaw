@@ -17,6 +17,7 @@ def test_agent_state_initial():
     assert state.phase == AgentPhase.IDLE
     assert state.proposals_today == 0
     assert state.is_running is False
+    assert state.last_cycle_started_at is None
 
 
 def test_agent_state_transitions():
@@ -31,6 +32,23 @@ def test_agent_state_to_dict():
     assert d["phase"] == "idle"
     assert d["is_running"] is False
     assert d["last_analysis_metrics"] == {}
+    assert d["last_cycle_started_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_agent_run_cycle_records_last_cycle_started_at():
+    settings = Settings(anthropic_api_key="test", github_token="test")
+    mock_provider = AsyncMock()
+    bus = MessageBus()
+    router = ChannelRouter(bus)
+
+    agent = KinClawAgent(
+        settings=settings, provider=mock_provider, bus=bus, router=router
+    )
+
+    await agent.run_improvement_cycle()
+
+    assert agent.state.last_cycle_started_at is not None
 
 
 @pytest.mark.asyncio

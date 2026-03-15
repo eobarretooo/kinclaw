@@ -33,6 +33,15 @@ def _serialize_proposal(record) -> dict:
     }
 
 
+def _derive_runtime_status(state: dict, pending_count: int) -> tuple[str, str]:
+    phase = state.get("phase") or "idle"
+    if pending_count > 0 and phase == "idle":
+        return "awaiting_approval", "awaiting_approval"
+    if phase == "awaiting_approval":
+        return "awaiting_approval", phase
+    return ("running" if state.get("is_running") else "idle", phase)
+
+
 async def _load_runtime_snapshot() -> dict:
     from kinclaw.web.app import get_agent_state
 
@@ -56,9 +65,10 @@ async def _load_runtime_snapshot() -> dict:
 
     pending_count = sum(1 for proposal in proposals if proposal.status == "pending")
     sent_count = sum(1 for proposal in proposals if proposal.status == "sent")
+    status_value, phase_value = _derive_runtime_status(state, pending_count)
 
     return {
-        "status": "running" if state.get("is_running") else "idle",
+        "status": status_value,
         "version": "1.0.0",
         "name": "KinClaw",
         "files": metrics.get("files", 0),
@@ -72,6 +82,7 @@ async def _load_runtime_snapshot() -> dict:
             _serialize_proposal(proposal) for proposal in proposals[:5]
         ],
         **state,
+        "phase": phase_value,
     }
 
 

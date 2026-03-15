@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
@@ -99,6 +100,9 @@ class KinClawAgent:
         """One complete analyze → propose → approve → execute cycle."""
         self._state.reset_daily_counters_if_new_day()
         self._state.error = None
+        self._state.last_cycle_started_at = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
 
         logger.info("Starting improvement cycle")
         await self._audit.log("cycle_start")

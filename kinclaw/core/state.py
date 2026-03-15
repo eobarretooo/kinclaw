@@ -25,6 +25,7 @@ class AgentState:
         self.current_proposal_id: str | None = None
         self.error: str | None = None
         self.last_analysis_metrics: dict = {}
+        self.last_cycle_started_at: str | None = None
 
     def reset_daily_counters_if_new_day(self) -> None:
         today = date.today()
@@ -40,4 +41,5 @@ class AgentState:
             "current_proposal_id": self.current_proposal_id,
             "error": self.error,
             "last_analysis_metrics": self.last_analysis_metrics,
+            "last_cycle_started_at": self.last_cycle_started_at,
         }
