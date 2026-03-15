@@ -75,8 +75,10 @@ async def test_agent_format_proposal_notification():
 
 
 @pytest.mark.asyncio
-async def test_agent_handles_inbound_approval():
-    """_handle_inbound() routes approval message to queue."""
+async def test_agent_handles_inbound_approval_for_explicit_proposal_reference():
+    """_handle_inbound() routes approval using explicit proposal correlation."""
+    await init_db("sqlite+aiosqlite:///:memory:")
+
     settings = Settings(anthropic_api_key="test", github_token="test")
     mock_provider = AsyncMock()
     bus = MessageBus()
@@ -85,21 +87,39 @@ async def test_agent_handles_inbound_approval():
         settings=settings, provider=mock_provider, bus=bus, router=router
     )
 
-    # Set a current proposal being awaited
-    agent._state.current_proposal_id = "proposal-123"
+    proposal_one = Proposal(
+        id="proposal-123",
+        title="One",
+        description="First proposal",
+        confidence_pct=70,
+    )
+    proposal_two = Proposal(
+        id="proposal-456",
+        title="Two",
+        description="Second proposal",
+        confidence_pct=75,
+    )
+
+    await agent._save_proposal(proposal_one, status=ProposalStatus.SENT)
+    await agent._save_proposal(proposal_two, status=ProposalStatus.SENT)
     agent._approval_queue.register_proposal("proposal-123")
+    agent._approval_queue.register_proposal("proposal-456")
+    agent._state.current_proposal_id = "proposal-123"
 
     from kinclaw.core.types import InboundMessage
 
     msg = InboundMessage(
-        channel="telegram", sender_id="123", chat_id="123", content="aprova"
+        channel="telegram",
+        sender_id="123",
+        chat_id="123",
+        content="aprova proposal-456",
     )
     await agent._handle_inbound(msg)
 
-    # Check it was submitted to queue
-    approval = await agent._approval_queue.get_for("proposal-123", timeout=0.5)
+    approval = await agent._approval_queue.get_for("proposal-456", timeout=0.5)
     assert approval is not None
     assert approval.approved is True
+    assert approval.proposal_id == "proposal-456"
 
 
 @pytest.mark.asyncio

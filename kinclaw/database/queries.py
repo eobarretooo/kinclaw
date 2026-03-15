@@ -5,8 +5,8 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from kinclaw.core.types import Proposal, ProposalStatus
-from kinclaw.database.models import AuditRecord, ProposalRecord
+from kinclaw.core.types import Approval, Proposal, ProposalStatus
+from kinclaw.database.models import ApprovalDecisionRecord, AuditRecord, ProposalRecord
 
 
 class ProposalRepo:
@@ -94,3 +94,39 @@ class AuditRepo:
         rec = AuditRecord(action=action, detail=detail, result=result, actor=actor)
         self._s.add(rec)
         await self._s.commit()
+
+
+class ApprovalRepo:
+    def __init__(self, session: AsyncSession) -> None:
+        self._s = session
+
+    async def get_by_proposal_id(
+        self, proposal_id: str
+    ) -> ApprovalDecisionRecord | None:
+        result = await self._s.execute(
+            select(ApprovalDecisionRecord).where(
+                ApprovalDecisionRecord.proposal_id == proposal_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def save_decision(self, approval: Approval) -> ApprovalDecisionRecord:
+        rec = await self.get_by_proposal_id(approval.proposal_id)
+        decision = "approved" if approval.approved else "rejected"
+        if rec is None:
+            rec = ApprovalDecisionRecord(
+                proposal_id=approval.proposal_id,
+                decision=decision,
+                channel=approval.channel,
+                raw_message=approval.raw_message,
+                decided_at=approval.decided_at,
+            )
+            self._s.add(rec)
+        else:
+            rec.decision = decision
+            rec.channel = approval.channel
+            rec.raw_message = approval.raw_message
+            rec.decided_at = approval.decided_at
+        await self._s.commit()
+        await self._s.refresh(rec)
+        return rec

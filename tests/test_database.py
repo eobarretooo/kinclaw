@@ -1,7 +1,7 @@
 import pytest
 from kinclaw.database.connection import init_db, get_session
-from kinclaw.database.queries import ProposalRepo
-from kinclaw.core.types import Proposal
+from kinclaw.database.queries import ApprovalRepo, ProposalRepo
+from kinclaw.core.types import Approval, Proposal
 
 
 @pytest.fixture(autouse=True)
@@ -67,3 +67,23 @@ async def test_save_proposal_and_update_status():
         assert fetched is not None
         assert fetched.status == "executing"
         assert fetched.reference_claw == "claw"
+
+
+@pytest.mark.asyncio
+async def test_save_and_fetch_approval_decision():
+    async with get_session() as session:
+        repo = ApprovalRepo(session)
+        approval = Approval(
+            proposal_id="p4",
+            approved=False,
+            channel="discord",
+            raw_message="nega p4",
+        )
+
+        rec = await repo.save_decision(approval)
+        fetched = await repo.get_by_proposal_id("p4")
+
+        assert rec.proposal_id == "p4"
+        assert fetched is not None
+        assert fetched.decision == "rejected"
+        assert fetched.channel == "discord"

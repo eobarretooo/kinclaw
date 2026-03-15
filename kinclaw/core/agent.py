@@ -48,7 +48,7 @@ class KinClawAgent:
         self._analyzer = SelfAnalyzer(base_path=Path("."))
         self._comparator = ClawComparator(ref_path=Path("ref"))
         self._proposer = ProposalGenerator(provider=provider)
-        self._approval_queue = ApprovalQueue()
+        self._approval_queue = ApprovalQueue(persist_decisions=True)
         self._approval_parser = ApprovalParser()
         self._limiter = RateLimiter(
             max_commits_per_day=settings.max_commits_per_day,
@@ -209,6 +209,7 @@ class KinClawAgent:
             raise
         finally:
             if proposal is not None:
+                self._approval_queue.clear(proposal.id)
                 self._state.current_proposal_id = None
                 self._state.phase = AgentPhase.IDLE
                 self._publish_state()
@@ -268,11 +269,12 @@ class KinClawAgent:
 
     async def _handle_inbound(self, msg: InboundMessage) -> None:
         """Route inbound messages to approval queue if relevant."""
-        if not self._state.current_proposal_id:
+        pending_proposal_ids = await self._pending_approval_proposal_ids()
+        if not pending_proposal_ids:
             return
         approval = self._approval_parser.parse(
             message=msg.content,
-            proposal_id=self._state.current_proposal_id,
+            pending_proposal_ids=pending_proposal_ids,
             channel=msg.channel,
         )
         if approval:
@@ -288,7 +290,8 @@ class KinClawAgent:
             f"💪 Confidence: {proposal.confidence_pct}%\n"
             f"⏱️ Estimated: {proposal.estimated_hours}h\n"
             f"🔍 Inspired by: {proposal.reference_claw}\n\n"
-            f"Reply **aprova** to approve or **nega** to reject.\n"
+            f"Proposal ID: `{proposal.id}`\n"
+            f"Reply **aprova {proposal.id}** to approve or **nega {proposal.id}** to reject.\n"
             f"(Timeout in 1 hour)"
         )
 
@@ -313,3 +316,13 @@ class KinClawAgent:
         async with get_session() as session:
             repo = ProposalRepo(session)
             await repo.update_status(proposal_id, status)
+
+    async def _pending_approval_proposal_ids(self) -> list[str]:
+        pending_ids = set(self._approval_queue.pending_ids())
+        async with get_session() as session:
+            repo = ProposalRepo(session)
+            pending_records = await repo.list_by_statuses(
+                [ProposalStatus.PENDING, ProposalStatus.SENT]
+            )
+        pending_ids.update(record.id for record in pending_records)
+        return list(pending_ids)

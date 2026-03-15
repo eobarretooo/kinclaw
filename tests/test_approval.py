@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 from kinclaw.approval.parser import ApprovalParser
 from kinclaw.approval.queue import ApprovalQueue
 from kinclaw.approval.executor import ApprovalExecutor
+from kinclaw.database.connection import init_db
 from kinclaw.guardrails.limits import RateLimiter
 from kinclaw.guardrails.safety import SafetyChecker
 from kinclaw.guardrails.audit import AuditLogger
@@ -36,10 +37,32 @@ def test_parser_returns_none_for_unrelated():
     assert result is None
 
 
+def test_parser_extracts_proposal_reference_from_message():
+    parser = ApprovalParser()
+    result = parser.parse(
+        "aprova proposal-2",
+        pending_proposal_ids=["proposal-1", "proposal-2"],
+    )
+    assert result is not None
+    assert result.proposal_id == "proposal-2"
+    assert result.approved is True
+
+
+def test_parser_requires_explicit_reference_when_multiple_proposals_pending():
+    parser = ApprovalParser()
+    result = parser.parse(
+        "aprova",
+        pending_proposal_ids=["proposal-1", "proposal-2"],
+    )
+    assert result is None
+
+
 @pytest.mark.asyncio
 async def test_queue_receive_approval():
     queue = ApprovalQueue()
-    approval = Approval(proposal_id="p1", approved=True, channel="telegram", raw_message="aprova")
+    approval = Approval(
+        proposal_id="p1", approved=True, channel="telegram", raw_message="aprova"
+    )
     await queue.submit(approval)
     received = await queue.get_for("p1", timeout=0.5)
     assert received is not None
@@ -54,6 +77,42 @@ async def test_queue_timeout_returns_none():
 
 
 @pytest.mark.asyncio
+async def test_queue_hydrates_persisted_approval_after_restart():
+    await init_db("sqlite+aiosqlite:///:memory:")
+
+    approval = Approval(
+        proposal_id="persisted-proposal",
+        approved=True,
+        channel="telegram",
+        raw_message="aprova persisted-proposal",
+    )
+    first_queue = ApprovalQueue(persist_decisions=True)
+    await first_queue.submit(approval)
+    first_queue.clear("persisted-proposal")
+
+    restarted_queue = ApprovalQueue(persist_decisions=True)
+    received = await restarted_queue.get_for("persisted-proposal", timeout=0.05)
+
+    assert received is not None
+    assert received.proposal_id == "persisted-proposal"
+    assert received.approved is True
+
+
+@pytest.mark.asyncio
+async def test_queue_clear_removes_stale_in_memory_approval_state():
+    queue = ApprovalQueue()
+    approval = Approval(
+        proposal_id="p1", approved=True, channel="telegram", raw_message="aprova"
+    )
+
+    await queue.submit(approval)
+    queue.clear("p1")
+
+    assert queue.pending_count() == 0
+    assert await queue.get_for("p1", timeout=0.05) is None
+
+
+@pytest.mark.asyncio
 async def test_executor_rejects_when_not_approved():
     safety = SafetyChecker()
     limiter = RateLimiter()
@@ -61,8 +120,18 @@ async def test_executor_rejects_when_not_approved():
     audit.log = AsyncMock()
 
     executor = ApprovalExecutor(safety=safety, limiter=limiter, audit=audit)
-    proposal = Proposal(title="X", description="Y", impact_pct=0, risk="low", confidence_pct=0, estimated_hours=1, code_changes={})
-    approval = Approval(proposal_id=proposal.id, approved=False, channel="test", raw_message="nega")
+    proposal = Proposal(
+        title="X",
+        description="Y",
+        impact_pct=0,
+        risk="low",
+        confidence_pct=0,
+        estimated_hours=1,
+        code_changes={},
+    )
+    approval = Approval(
+        proposal_id=proposal.id, approved=False, channel="test", raw_message="nega"
+    )
 
     result = await executor.execute(proposal, approval)
     assert result["success"] is False
@@ -78,11 +147,17 @@ async def test_executor_blocks_forbidden_path():
 
     executor = ApprovalExecutor(safety=safety, limiter=limiter, audit=audit)
     proposal = Proposal(
-        title="Bad", description="Modifies guardrails", impact_pct=0, risk="high",
-        confidence_pct=0, estimated_hours=0,
+        title="Bad",
+        description="Modifies guardrails",
+        impact_pct=0,
+        risk="high",
+        confidence_pct=0,
+        estimated_hours=0,
         code_changes={"kinclaw/guardrails/safety.py": "# hacked"},
     )
-    approval = Approval(proposal_id=proposal.id, approved=True, channel="test", raw_message="aprova")
+    approval = Approval(
+        proposal_id=proposal.id, approved=True, channel="test", raw_message="aprova"
+    )
 
     result = await executor.execute(proposal, approval)
     assert result["success"] is False
@@ -97,8 +172,18 @@ async def test_executor_blocks_when_commit_limit_reached():
     audit.log = AsyncMock()
 
     executor = ApprovalExecutor(safety=safety, limiter=limiter, audit=audit)
-    proposal = Proposal(title="Ok", description="Fine", impact_pct=5, risk="low", confidence_pct=80, estimated_hours=1, code_changes={})
-    approval = Approval(proposal_id=proposal.id, approved=True, channel="test", raw_message="aprova")
+    proposal = Proposal(
+        title="Ok",
+        description="Fine",
+        impact_pct=5,
+        risk="low",
+        confidence_pct=80,
+        estimated_hours=1,
+        code_changes={},
+    )
+    approval = Approval(
+        proposal_id=proposal.id, approved=True, channel="test", raw_message="aprova"
+    )
 
     result = await executor.execute(proposal, approval)
     assert result["success"] is False

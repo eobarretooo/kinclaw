@@ -1,4 +1,5 @@
 """SQLAlchemy ORM models."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -24,7 +25,9 @@ class ProposalRecord(Base):
     status: Mapped[str] = mapped_column(String(32), default="pending")
     reference_claw: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
 
 class AuditRecord(Base):
@@ -36,3 +39,13 @@ class AuditRecord(Base):
     detail: Mapped[str] = mapped_column(Text, default="")
     result: Mapped[str] = mapped_column(String(16), default="ok")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ApprovalDecisionRecord(Base):
+    __tablename__ = "approval_decisions"
+
+    proposal_id: Mapped[str] = mapped_column(String, primary_key=True)
+    decision: Mapped[str] = mapped_column(String(16))
+    channel: Mapped[str] = mapped_column(String(64), default="unknown")
+    raw_message: Mapped[str] = mapped_column(Text, default="")
+    decided_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
